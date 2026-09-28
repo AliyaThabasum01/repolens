@@ -1,13 +1,11 @@
 from collections import Counter
-from pathlib import Path
+import os
 
 
 LANGUAGE_MAP = {
     ".py": "Python",
     ".js": "JavaScript",
-    ".jsx": "JavaScript",
     ".ts": "TypeScript",
-    ".tsx": "TypeScript",
     ".java": "Java",
     ".cpp": "C++",
     ".c": "C",
@@ -17,11 +15,30 @@ LANGUAGE_MAP = {
     ".php": "PHP",
     ".html": "HTML",
     ".css": "CSS",
+    ".jsx": "React",
+    ".tsx": "React / TypeScript",
     ".sql": "SQL",
 }
 
 
+CONFIG_FILES = {
+    "requirements.txt": "Python Dependencies",
+    "package.json": "Node.js",
+    "pom.xml": "Maven",
+    "build.gradle": "Gradle",
+    "dockerfile": "Docker",
+    "docker-compose.yml": "Docker Compose",
+    "docker-compose.yaml": "Docker Compose",
+    "vercel.json": "Vercel",
+    "vite.config.js": "Vite",
+    "vite.config.ts": "Vite",
+    "next.config.js": "Next.js",
+    "next.config.mjs": "Next.js",
+}
+
+
 def analyze_files(files):
+
     file_paths = [
         file["path"]
         for file in files
@@ -31,46 +48,79 @@ def analyze_files(files):
     extensions = []
 
     for path in file_paths:
-        extension = Path(path).suffix.lower()
+
+        _, extension = os.path.splitext(path)
 
         if extension:
-            extensions.append(extension)
+            extensions.append(extension.lower())
 
     extension_counts = Counter(extensions)
 
-    languages = {}
+    languages = []
 
     for extension, count in extension_counts.items():
-        language = LANGUAGE_MAP.get(extension)
 
-        if language:
-            languages[language] = languages.get(language, 0) + count
+        if extension in LANGUAGE_MAP:
 
-    tech_stack = []
+            languages.append({
+                "language": LANGUAGE_MAP[extension],
+                "files": count
+            })
 
-    filenames = {Path(path).name.lower() for path in file_paths}
+    languages.sort(
+        key=lambda item: item["files"],
+        reverse=True
+    )
 
-    if "requirements.txt" in filenames:
-        tech_stack.append("Python")
+    detected_tools = []
 
-    if "package.json" in filenames:
-        tech_stack.append("Node.js")
+    filenames = [
+        os.path.basename(path).lower()
+        for path in file_paths
+    ]
 
-    if "dockerfile" in filenames:
-        tech_stack.append("Docker")
+    for filename, tool in CONFIG_FILES.items():
 
-    if "pom.xml" in filenames:
-        tech_stack.append("Maven")
+        if filename.lower() in filenames:
+            detected_tools.append(tool)
 
-    if "vite.config.js" in filenames or "vite.config.ts" in filenames:
-        tech_stack.append("Vite")
+    directories = set()
 
-    if "streamlit" in filenames:
-        tech_stack.append("Streamlit")
+    for path in file_paths:
+
+        parts = path.split("/")
+
+        if len(parts) > 1:
+            directories.add(parts[0])
 
     return {
         "total_files": len(file_paths),
-        "languages": languages,
         "extensions": dict(extension_counts),
-        "tech_stack": tech_stack,
+        "languages": languages,
+        "tools": detected_tools,
+        "directories": sorted(directories)
     }
+
+
+def get_project_summary(analysis):
+
+    total_files = analysis["total_files"]
+    languages = analysis["languages"]
+
+    if not languages:
+
+        return (
+            f"The repository contains {total_files} files, "
+            "but no supported programming languages were detected."
+        )
+
+    main_languages = [
+        item["language"]
+        for item in languages[:3]
+    ]
+
+    return (
+        f"The repository contains {total_files} files. "
+        f"The main technologies detected are "
+        f"{', '.join(main_languages)}."
+    )
