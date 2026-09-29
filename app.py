@@ -20,12 +20,8 @@ st.set_page_config(
     layout="wide"
 )
 
-
 st.title("🔍 RepoLens")
-
-st.caption(
-    "GitHub Repository Analyzer"
-)
+st.caption("GitHub Repository Analyzer")
 
 
 repo_url = st.text_input(
@@ -37,47 +33,22 @@ repo_url = st.text_input(
 if st.button("🚀 Analyze Repository"):
 
     if not repo_url:
-
-        st.warning(
-            "Please enter a GitHub repository URL."
-        )
-
+        st.warning("Enter a GitHub repository URL.")
         st.stop()
-
 
     try:
 
-        # -------------------------
-        # Validate URL
-        # -------------------------
-
         parts = repo_url.rstrip("/").split("/")
 
-        if (
-            len(parts) < 5
-            or parts[2] != "github.com"
-        ):
-
-            raise Exception(
-                "Please enter a valid GitHub repository URL."
-            )
+        if len(parts) < 5 or parts[2] != "github.com":
+            raise Exception("Enter a valid GitHub repository URL.")
 
         owner = parts[3]
         repo = parts[4]
 
+        with st.spinner("🔎 Analyzing repository..."):
 
-        # -------------------------
-        # Load repository
-        # -------------------------
-
-        with st.spinner(
-            "🔎 Analyzing repository..."
-        ):
-
-            info = get_repo_info(
-                owner,
-                repo
-            )
+            info = get_repo_info(owner, repo)
 
             branch = info.get(
                 "default_branch",
@@ -95,77 +66,75 @@ if st.button("🚀 Analyze Repository"):
                 repo
             )
 
+        analysis = analyze_files(files)
 
-        st.success(
-            "Repository analyzed successfully!"
+        evaluation = evaluate_repository(
+            info,
+            analysis,
+            readme
         )
+
+        st.success("Repository analyzed successfully!")
 
 
         # -------------------------
         # Statistics
         # -------------------------
 
-        total_files = len([
-            file
-            for file in files
-            if file.get("type") == "blob"
-        ])
-
+        st.subheader("📊 Repository Overview")
 
         col1, col2, col3, col4 = st.columns(4)
-
 
         col1.metric(
             "⭐ Stars",
             info.get("stargazers_count", 0)
         )
 
-
         col2.metric(
             "🍴 Forks",
             info.get("forks_count", 0)
         )
-
 
         col3.metric(
             "🐛 Issues",
             info.get("open_issues_count", 0)
         )
 
-
         col4.metric(
             "📁 Files",
-            total_files
+            analysis["total_files"]
         )
 
 
         # -------------------------
-        # Repository information
+        # Project Summary
+        # -------------------------
+
+        st.subheader("🧠 Project Understanding")
+
+        st.info(
+            get_project_summary(analysis)
+        )
+
+
+        # -------------------------
+        # Repository Info
         # -------------------------
 
         st.subheader("📋 Repository Information")
-
 
         st.write(
             f"**Name:** {info.get('name', 'Unknown')}"
         )
 
-
         st.write(
-            f"**Owner:** {owner}"
-        )
-
-
-        st.write(
-            f"**Default Branch:** {branch}"
-        )
-
-
-        st.write(
-            f"**Primary Language:** "
+            f"**Language:** "
             f"{info.get('language') or 'Not detected'}"
         )
 
+        st.write(
+            f"**Branch:** {branch}"
+        )
 
         st.write(
             f"**Description:** "
@@ -174,189 +143,112 @@ if st.button("🚀 Analyze Repository"):
 
 
         # -------------------------
-        # Analysis
+        # Technologies
         # -------------------------
 
-        analysis = analyze_files(files)
+        st.subheader("💻 Technologies")
 
+        if analysis["languages"]:
 
-        st.subheader("📊 Project Analysis")
-
-
-        st.info(
-            get_project_summary(analysis)
-        )
-
-
-        col1, col2 = st.columns(2)
-
-
-        with col1:
-
-            st.write("### 💻 Technologies")
-
-
-            if analysis["languages"]:
-
-                for item in analysis["languages"]:
-
-                    st.write(
-                        f"• **{item['language']}** "
-                        f"— {item['files']} files"
-                    )
-
-            else:
+            for item in analysis["languages"]:
 
                 st.write(
-                    "No supported languages detected."
-                )
-
-
-        with col2:
-
-            st.write("### 🧩 Detected Tools")
-
-
-            if analysis["tools"]:
-
-                for tool in analysis["tools"]:
-
-                    st.write(
-                        f"• {tool}"
-                    )
-
-            else:
-
-                st.write(
-                    "No major configuration files detected."
-                )
-
-
-        # -------------------------
-        # Project folders
-        # -------------------------
-
-        st.subheader("📂 Project Folders")
-
-
-        if analysis["directories"]:
-
-            for directory in analysis["directories"]:
-
-                st.write(
-                    f"📁 `{directory}`"
+                    f"• **{item['language']}** "
+                    f"— {item['files']} files"
                 )
 
         else:
 
-            st.write(
-                "No folders detected."
-            )
+            st.write("No supported technologies detected.")
 
 
         # -------------------------
-        # Repository structure
+        # Tools
         # -------------------------
 
-        st.subheader("📁 Repository Structure")
+        st.subheader("🧩 Detected Tools")
+
+        if analysis["tools"]:
+
+            for tool in analysis["tools"]:
+                st.write(f"• {tool}")
+
+        else:
+
+            st.write("No major configuration tools detected.")
 
 
-        with st.expander(
-            "View all repository files"
-        ):
+        # -------------------------
+        # Evaluation Report
+        # -------------------------
 
-            for file in files:
+        st.divider()
 
-                if file.get("type") == "blob":
+        st.header("🤖 RepoLens Evaluation Report")
 
-                    st.code(
-                        file["path"]
-                    )
+        st.subheader("💪 Strengths")
+
+        for item in evaluation["strengths"]:
+            st.success(f"✓ {item}")
+
+
+        st.subheader("⚠️ Weaknesses")
+
+        if evaluation["weaknesses"]:
+
+            for item in evaluation["weaknesses"]:
+                st.warning(f"• {item}")
+
+        else:
+
+            st.write("No major weaknesses detected.")
+
+
+        st.subheader("💡 Improvement Suggestions")
+
+        for item in evaluation["suggestions"]:
+            st.info(f"→ {item}")
 
 
         # -------------------------
         # README
         # -------------------------
 
-        st.subheader("📖 README")
-
-
         if readme:
 
-            with st.expander(
-                "View README"
-            ):
+            st.divider()
+
+            st.subheader("📖 Repository README")
+
+            with st.expander("View README"):
 
                 st.markdown(readme)
 
-        else:
-
-            st.warning(
-                "README not found."
-            )
-
 
         # -------------------------
-        # Evaluation
-        # -------------------------
-
-        evaluation = evaluate_repository(
-            info,
-            analysis,
-            readme
-        )
-
-
-        st.subheader("💪 Strengths")
-
-
-        if evaluation["strengths"]:
-
-            for strength in evaluation["strengths"]:
-
-                st.success(
-                    f"✓ {strength}"
-                )
-
-        else:
-
-            st.write(
-                "No strengths detected yet."
-            )
-
-
-        st.subheader("💡 Improvement Suggestions")
-
-
-        if evaluation["suggestions"]:
-
-            for suggestion in evaluation["suggestions"]:
-
-                st.warning(
-                    f"→ {suggestion}"
-                )
-
-        else:
-
-            st.write(
-                "No suggestions generated."
-            )
-
-
-        # -------------------------
-        # Footer
+        # File Structure
         # -------------------------
 
         st.divider()
 
+        st.subheader("📁 Repository Structure")
+
+        with st.expander("View Files"):
+
+            for file in files:
+
+                if file.get("type") == "blob":
+
+                    st.code(file["path"])
+
+
+        st.divider()
 
         st.caption(
-            "RepoLens • Repository Analysis Engine"
+            "RepoLens • GitHub Repository Analysis Engine"
         )
 
 
     except Exception as error:
 
-        st.error(
-            f"❌ {error}"
-        )
+        st.error(f"❌ {error}")
