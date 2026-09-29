@@ -17,7 +17,7 @@ LANGUAGE_MAP = {
     ".css": "CSS",
     ".jsx": "React",
     ".tsx": "React / TypeScript",
-    ".sql": "SQL",
+    ".sql": "SQL"
 }
 
 
@@ -33,13 +33,13 @@ CONFIG_FILES = {
     "vite.config.js": "Vite",
     "vite.config.ts": "Vite",
     "next.config.js": "Next.js",
-    "next.config.mjs": "Next.js",
+    "next.config.mjs": "Next.js"
 }
 
 
 def analyze_files(files):
 
-    file_paths = [
+    paths = [
         file["path"]
         for file in files
         if file.get("type") == "blob"
@@ -47,18 +47,20 @@ def analyze_files(files):
 
     extensions = []
 
-    for path in file_paths:
+    for path in paths:
 
         _, extension = os.path.splitext(path)
 
         if extension:
-            extensions.append(extension.lower())
+            extensions.append(
+                extension.lower()
+            )
 
-    extension_counts = Counter(extensions)
+    counts = Counter(extensions)
 
     languages = []
 
-    for extension, count in extension_counts.items():
+    for extension, count in counts.items():
 
         if extension in LANGUAGE_MAP:
 
@@ -68,25 +70,25 @@ def analyze_files(files):
             })
 
     languages.sort(
-        key=lambda item: item["files"],
+        key=lambda x: x["files"],
         reverse=True
     )
 
-    detected_tools = []
-
     filenames = [
         os.path.basename(path).lower()
-        for path in file_paths
+        for path in paths
     ]
+
+    tools = []
 
     for filename, tool in CONFIG_FILES.items():
 
         if filename.lower() in filenames:
-            detected_tools.append(tool)
+            tools.append(tool)
 
     directories = set()
 
-    for path in file_paths:
+    for path in paths:
 
         parts = path.split("/")
 
@@ -94,33 +96,32 @@ def analyze_files(files):
             directories.add(parts[0])
 
     return {
-        "total_files": len(file_paths),
-        "extensions": dict(extension_counts),
+        "total_files": len(paths),
+        "extensions": dict(counts),
         "languages": languages,
-        "tools": detected_tools,
+        "tools": tools,
         "directories": sorted(directories)
     }
 
 
 def get_project_summary(analysis):
 
-    total_files = analysis["total_files"]
+    total = analysis["total_files"]
     languages = analysis["languages"]
 
     if not languages:
 
         return (
-            f"The repository contains {total_files} files, "
-            "but no supported programming languages were detected."
+            f"The repository contains {total} files."
         )
 
-    main_languages = [
+    top_languages = [
         item["language"]
         for item in languages[:3]
     ]
 
     return (
-        f"The repository contains {total_files} files. "
-        f"The main technologies detected are "
-        f"{', '.join(main_languages)}."
+        f"The repository contains {total} files "
+        f"with {', '.join(top_languages)} "
+        f"as the primary detected technologies."
     )
