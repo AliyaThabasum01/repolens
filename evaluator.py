@@ -1,78 +1,81 @@
 def evaluate_repository(info, analysis, readme):
 
     strengths = []
+    weaknesses = []
     suggestions = []
 
-    # README check
-    if readme and len(readme.strip()) > 100:
-
+    # README
+    if readme and len(readme.strip()) >= 200:
         strengths.append(
-            "The repository contains a detailed README."
+            "The repository contains a reasonably detailed README."
         )
-
     else:
-
+        weaknesses.append(
+            "The project documentation is limited."
+        )
         suggestions.append(
-            "Improve the README with project overview, "
-            "installation steps, features and usage instructions."
+            "Improve the README with features, setup steps, "
+            "usage instructions, screenshots and architecture."
         )
 
-    # Description check
+    # Description
     if info.get("description"):
-
         strengths.append(
-            "The repository has a project description."
+            "The project has a clear repository description."
         )
-
     else:
-
+        weaknesses.append(
+            "No repository description was provided."
+        )
         suggestions.append(
-            "Add a clear GitHub repository description."
+            "Add a concise description explaining the project's purpose."
         )
 
-    # Project size
-    if analysis["total_files"] >= 5:
-
+    # Project structure
+    if analysis["total_files"] >= 10:
         strengths.append(
-            "The project contains a reasonably structured codebase."
+            "The repository contains a reasonably developed codebase."
         )
-
     else:
-
-        suggestions.append(
-            "Consider organizing the project into separate "
-            "modules and components."
+        weaknesses.append(
+            "The repository currently has a small codebase."
         )
 
-    # Languages
+    # Technologies
     if analysis["languages"]:
-
         strengths.append(
-            "Programming languages were successfully detected."
+            "The project's primary technologies were successfully detected."
         )
-
     else:
-
-        suggestions.append(
-            "Add recognizable source files or improve the "
-            "repository structure."
+        weaknesses.append(
+            "No supported programming language was detected."
         )
 
     # Configuration
     if analysis["tools"]:
-
         strengths.append(
             "Project configuration or dependency files were detected."
         )
-
     else:
-
         suggestions.append(
-            "Add dependency and configuration files to make "
-            "the project easier to install and run."
+            "Add dependency and configuration files "
+            "to make the project easier to reproduce."
+        )
+
+    # Folder structure
+    if analysis["directories"]:
+        strengths.append(
+            "The repository uses multiple directories "
+            "to organize project files."
+        )
+    else:
+        suggestions.append(
+            "Consider separating source code, assets, "
+            "configuration and documentation."
         )
 
     return {
         "strengths": strengths,
+        "weaknesses": weaknesses,
         "suggestions": suggestions
     }
