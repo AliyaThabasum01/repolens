@@ -1,3 +1,7 @@
+
+import json
+from datetime import datetime
+
 import streamlit as st
 
 from github_reader import (
@@ -20,21 +24,9 @@ st.set_page_config(
     layout="wide"
 )
 
-
-# -------------------------
-# Header
-# -------------------------
-
 st.title("🔍 RepoLens")
+st.caption("GitHub Repository Analyzer & Project Evaluator")
 
-st.caption(
-    "GitHub Repository Analyzer & Project Evaluator"
-)
-
-
-# -------------------------
-# Repository Input
-# -------------------------
 
 repo_url = st.text_input(
     "GitHub Repository URL",
@@ -42,419 +34,209 @@ repo_url = st.text_input(
 )
 
 
-if st.button("🚀 Analyze Repository"):
+def create_report(info, analysis, evaluation):
+    return {
+        "report": {
+            "generated_at": datetime.now().astimezone().isoformat(),
+            "repository": {
+                "name": info.get("name"),
+                "owner": info.get("owner", {}).get("login"),
+                "url": info.get("html_url"),
+                "description": info.get("description"),
+                "primary_language": info.get("language"),
+                "default_branch": info.get("default_branch"),
+                "stars": info.get("stargazers_count", 0),
+                "forks": info.get("forks_count", 0),
+                "open_issues": info.get("open_issues_count", 0)
+            },
+            "analysis": analysis,
+            "evaluation": evaluation
+        }
+    }
 
-    if not repo_url:
 
-        st.warning(
-            "Please enter a GitHub repository URL."
-        )
+if st.button("🚀 Analyze Repository", type="primary"):
 
+    if not repo_url.strip():
+        st.warning("Please enter a GitHub repository URL.")
         st.stop()
 
+    parts = repo_url.strip().rstrip("/").split("/")
+
+    if (
+        len(parts) < 5
+        or parts[0] not in ("https:", "http:")
+        or parts[2].lower() != "github.com"
+    ):
+        st.error("Enter a valid GitHub repository URL.")
+        st.stop()
+
+    owner = parts[3]
+    repo = parts[4].removesuffix(".git")
 
     try:
+        with st.spinner("Scanning repository..."):
 
-        # -------------------------
-        # Validate URL
-        # -------------------------
+            info = get_repo_info(owner, repo)
 
-        parts = repo_url.rstrip("/").split("/")
+            branch = info.get("default_branch", "main")
 
-        if (
-            len(parts) < 5
-            or parts[2] != "github.com"
-        ):
+            files = get_repo_files(owner, repo, branch)
 
-            raise Exception(
-                "Please enter a valid GitHub repository URL."
+            readme = get_readme(owner, repo)
+
+            analysis = analyze_files(files)
+
+            evaluation = evaluate_repository(
+                info,
+                analysis,
+                readme
             )
 
-
-        owner = parts[3]
-        repo = parts[4]
-
-
-        # -------------------------
-        # Read Repository
-        # -------------------------
-
-        with st.spinner(
-            "🔎 Scanning repository..."
-        ):
-
-            info = get_repo_info(
-                owner,
-                repo
+            report = create_report(
+                info,
+                analysis,
+                evaluation
             )
 
-            branch = info.get(
-                "default_branch",
-                "main"
-            )
+        st.success("Analysis completed!")
 
-            files = get_repo_files(
-                owner,
-                repo,
-                branch
-            )
-
-            readme = get_readme(
-                owner,
-                repo
-            )
-
-
-        # -------------------------
-        # Analyze
-        # -------------------------
-
-        analysis = analyze_files(files)
-
-        evaluation = evaluate_repository(
-            info,
-            analysis,
-            readme
-        )
-
-
-        st.success(
-            "Repository analyzed successfully!"
-        )
-
-
-        # =====================================================
-        # PROJECT SCORE
-        # =====================================================
-
+        # Project score
         st.header("🤖 Project Evaluation")
-
 
         score = evaluation["score"]
 
         col1, col2 = st.columns([1, 2])
 
-
         with col1:
-
-            st.metric(
-                "Project Score",
-                f"{score}/100"
-            )
-
+            st.metric("Project Score", f"{score}/100")
 
         with col2:
+            st.subheader(evaluation["status"])
+            st.progress(score / 100)
 
-            st.write(
-                f"### {evaluation['status']}"
-            )
-
-            st.progress(
-                score / 100
-            )
-
-
-        # =====================================================
-        # SCORE BREAKDOWN
-        # =====================================================
-
+        # Evaluation breakdown
         st.subheader("📊 Evaluation Breakdown")
 
-
-        score_data = evaluation["scores"]
-
-
-        for category, value in score_data.items():
-
-            col1, col2 = st.columns([3, 1])
+        for category, value in evaluation["scores"].items():
+            col1, col2 = st.columns([4, 1])
 
             with col1:
-
-                st.write(
-                    f"**{category}**"
-                )
-
-                st.progress(
-                    value / 20
-                )
+                st.write(f"**{category}**")
+                st.progress(value / 20)
 
             with col2:
+                st.write(f"**{value}/20**")
 
-                st.write(
-                    f"**{value}/20**"
-                )
-
-
-        # =====================================================
-        # REPOSITORY OVERVIEW
-        # =====================================================
-
+        # Repository details
         st.divider()
-
         st.subheader("📦 Repository Overview")
-
 
         col1, col2, col3, col4 = st.columns(4)
 
-
-        col1.metric(
-            "⭐ Stars",
-            info.get(
-                "stargazers_count",
-                0
-            )
-        )
-
-
-        col2.metric(
-            "🍴 Forks",
-            info.get(
-                "forks_count",
-                0
-            )
-        )
-
-
-        col3.metric(
-            "🐛 Issues",
-            info.get(
-                "open_issues_count",
-                0
-            )
-        )
-
-
-        col4.metric(
-            "📁 Files",
-            analysis["total_files"]
-        )
-
-
-        # =====================================================
-        # PROJECT UNDERSTANDING
-        # =====================================================
-
-        st.subheader("🧠 Project Understanding")
-
-
-        st.info(
-            get_project_summary(
-                analysis
-            )
-        )
-
-
-        # =====================================================
-        # REPOSITORY INFORMATION
-        # =====================================================
+        col1.metric("⭐ Stars", info.get("stargazers_count", 0))
+        col2.metric("🍴 Forks", info.get("forks_count", 0))
+        col3.metric("🐛 Issues", info.get("open_issues_count", 0))
+        col4.metric("📁 Files", analysis["total_files"])
 
         st.subheader("📋 Repository Information")
 
+        st.write(f"**Name:** {info.get('name', 'Unknown')}")
+        st.write(f"**Owner:** {owner}")
+        st.write(f"**Branch:** {branch}")
+        st.write(f"**Language:** {info.get('language') or 'Not detected'}")
+        st.write(f"**Description:** {info.get('description') or 'No description'}")
 
-        st.write(
-            f"**Name:** "
-            f"{info.get('name', 'Unknown')}"
-        )
-
-
-        st.write(
-            f"**Owner:** "
-            f"{owner}"
-        )
-
-
-        st.write(
-            f"**Default Branch:** "
-            f"{branch}"
-        )
-
-
-        st.write(
-            f"**Primary Language:** "
-            f"{info.get('language') or 'Not detected'}"
-        )
-
-
-        st.write(
-            f"**Description:** "
-            f"{info.get('description') or 'No description'}"
-        )
-
-
-        # =====================================================
-        # TECHNOLOGIES
-        # =====================================================
-
+        # Technologies
+        st.divider()
         st.subheader("💻 Technologies")
 
-
         if analysis["languages"]:
-
             for item in analysis["languages"]:
-
                 st.write(
-                    f"• **{item['language']}** "
-                    f"— {item['files']} files"
+                    f"• **{item['language']}** — {item['files']} files"
                 )
-
         else:
-
-            st.write(
-                "No supported technologies detected."
-            )
-
-
-        # =====================================================
-        # DETECTED TOOLS
-        # =====================================================
+            st.write("No supported technologies detected.")
 
         st.subheader("🧩 Detected Tools")
 
-
         if analysis["tools"]:
-
             for tool in analysis["tools"]:
-
-                st.write(
-                    f"• {tool}"
-                )
-
+                st.write(f"• {tool}")
         else:
+            st.write("No major configuration files detected.")
 
-            st.write(
-                "No major configuration files detected."
-            )
-
-
-        # =====================================================
-        # STRENGTHS
-        # =====================================================
-
+        # Project understanding
         st.divider()
+        st.subheader("🧠 Project Understanding")
+        st.info(get_project_summary(analysis))
 
+        # Strengths
         st.subheader("💪 Strengths")
 
+        for item in evaluation["strengths"]:
+            st.success(f"✓ {item}")
 
-        if evaluation["strengths"]:
-
-            for strength in evaluation["strengths"]:
-
-                st.success(
-                    f"✓ {strength}"
-                )
-
-        else:
-
-            st.write(
-                "No strengths detected."
-            )
-
-
-        # =====================================================
-        # WEAKNESSES
-        # =====================================================
-
+        # Weaknesses
         st.subheader("⚠️ Weaknesses")
 
-
         if evaluation["weaknesses"]:
-
-            for weakness in evaluation["weaknesses"]:
-
-                st.warning(
-                    f"• {weakness}"
-                )
-
+            for item in evaluation["weaknesses"]:
+                st.warning(f"• {item}")
         else:
+            st.write("No major weaknesses detected.")
 
-            st.write(
-                "No major weaknesses detected."
-            )
-
-
-        # =====================================================
-        # SUGGESTIONS
-        # =====================================================
-
-        st.subheader(
-            "💡 Improvement Suggestions"
-        )
-
+        # Suggestions
+        st.subheader("💡 Improvement Suggestions")
 
         if evaluation["suggestions"]:
-
-            for suggestion in evaluation["suggestions"]:
-
-                st.info(
-                    f"→ {suggestion}"
-                )
-
+            for item in evaluation["suggestions"]:
+                st.info(f"→ {item}")
         else:
+            st.write("No suggestions available.")
 
-            st.write(
-                "No suggestions available."
-            )
-
-
-        # =====================================================
         # README
-        # =====================================================
-
         if readme:
-
             st.divider()
+            st.subheader("📖 Repository README")
 
-            st.subheader(
-                "📖 Repository README"
-            )
+            with st.expander("View README"):
+                st.markdown(readme)
 
-
-            with st.expander(
-                "View README"
-            ):
-
-                st.markdown(
-                    readme
-                )
-
-
-        # =====================================================
-        # FILE STRUCTURE
-        # =====================================================
-
+        # Repository files
         st.divider()
+        st.subheader("📁 Repository Structure")
 
-        st.subheader(
-            "📁 Repository Structure"
+        with st.expander("View all files"):
+            for file in files:
+                if file.get("type") == "blob":
+                    st.code(file["path"])
+
+        # Download report
+        st.divider()
+        st.header("📥 Export Evaluation Report")
+
+        report_json = json.dumps(
+            report,
+            indent=4,
+            ensure_ascii=False
         )
 
-
-        with st.expander(
-            "View all files"
-        ):
-
-            for file in files:
-
-                if file.get("type") == "blob":
-
-                    st.code(
-                        file["path"]
-                    )
-
-
-        # =====================================================
-        # FOOTER
-        # =====================================================
-
-        st.divider()
+        st.download_button(
+            label="⬇️ Download JSON Report",
+            data=report_json,
+            file_name=f"{repo}_evaluation_report.json",
+            mime="application/json"
+        )
 
         st.caption(
-            "RepoLens • GitHub Repository Analysis Engine"
+            "This report contains automated, rule-based "
+            "analysis and is not an AI-generated assessment."
         )
 
+        st.divider()
+        st.caption("RepoLens • Repository Analysis Engine")
 
     except Exception as error:
-
-        st.error(
-            f"❌ {error}"
-        )
+        st.error(f"Analysis failed: {error}")
