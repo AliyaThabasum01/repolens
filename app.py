@@ -27,6 +27,8 @@ st.set_page_config(
 st.title("🔍 RepoLens")
 st.caption("GitHub Repository Analyzer & Project Evaluator")
 
+if "history" not in st.session_state:
+    st.session_state.history = []
 
 repo_url = st.text_input(
     "GitHub Repository URL",
@@ -76,17 +78,13 @@ if st.button("🚀 Analyze Repository", type="primary"):
 
     try:
         with st.spinner("Scanning repository..."):
-
             info = get_repo_info(owner, repo)
-
             branch = info.get("default_branch", "main")
 
             files = get_repo_files(owner, repo, branch)
-
             readme = get_readme(owner, repo)
 
             analysis = analyze_files(files)
-
             evaluation = evaluate_repository(
                 info,
                 analysis,
@@ -99,23 +97,31 @@ if st.button("🚀 Analyze Repository", type="primary"):
                 evaluation
             )
 
+        # Save to session history
+        st.session_state.history.append({
+            "repository": info.get("full_name", repo),
+            "score": evaluation["score"],
+            "status": evaluation["status"],
+            "date": report["report"]["generated_at"],
+            "report": report
+        })
+
         st.success("Analysis completed!")
 
-        # Project score
         st.header("🤖 Project Evaluation")
-
-        score = evaluation["score"]
 
         col1, col2 = st.columns([1, 2])
 
         with col1:
-            st.metric("Project Score", f"{score}/100")
+            st.metric(
+                "Project Score",
+                f"{evaluation['score']}/100"
+            )
 
         with col2:
             st.subheader(evaluation["status"])
-            st.progress(score / 100)
+            st.progress(evaluation["score"] / 100)
 
-        # Evaluation breakdown
         st.subheader("📊 Evaluation Breakdown")
 
         for category, value in evaluation["scores"].items():
@@ -128,7 +134,6 @@ if st.button("🚀 Analyze Repository", type="primary"):
             with col2:
                 st.write(f"**{value}/20**")
 
-        # Repository details
         st.divider()
         st.subheader("📦 Repository Overview")
 
@@ -147,8 +152,10 @@ if st.button("🚀 Analyze Repository", type="primary"):
         st.write(f"**Language:** {info.get('language') or 'Not detected'}")
         st.write(f"**Description:** {info.get('description') or 'No description'}")
 
-        # Technologies
         st.divider()
+        st.subheader("🧠 Project Understanding")
+        st.info(get_project_summary(analysis))
+
         st.subheader("💻 Technologies")
 
         if analysis["languages"]:
@@ -167,18 +174,12 @@ if st.button("🚀 Analyze Repository", type="primary"):
         else:
             st.write("No major configuration files detected.")
 
-        # Project understanding
         st.divider()
-        st.subheader("🧠 Project Understanding")
-        st.info(get_project_summary(analysis))
-
-        # Strengths
         st.subheader("💪 Strengths")
 
         for item in evaluation["strengths"]:
             st.success(f"✓ {item}")
 
-        # Weaknesses
         st.subheader("⚠️ Weaknesses")
 
         if evaluation["weaknesses"]:
@@ -187,7 +188,6 @@ if st.button("🚀 Analyze Repository", type="primary"):
         else:
             st.write("No major weaknesses detected.")
 
-        # Suggestions
         st.subheader("💡 Improvement Suggestions")
 
         if evaluation["suggestions"]:
@@ -196,7 +196,6 @@ if st.button("🚀 Analyze Repository", type="primary"):
         else:
             st.write("No suggestions available.")
 
-        # README
         if readme:
             st.divider()
             st.subheader("📖 Repository README")
@@ -204,7 +203,6 @@ if st.button("🚀 Analyze Repository", type="primary"):
             with st.expander("View README"):
                 st.markdown(readme)
 
-        # Repository files
         st.divider()
         st.subheader("📁 Repository Structure")
 
@@ -213,7 +211,6 @@ if st.button("🚀 Analyze Repository", type="primary"):
                 if file.get("type") == "blob":
                     st.code(file["path"])
 
-        # Download report
         st.divider()
         st.header("📥 Export Evaluation Report")
 
@@ -230,13 +227,60 @@ if st.button("🚀 Analyze Repository", type="primary"):
             mime="application/json"
         )
 
-        st.caption(
-            "This report contains automated, rule-based "
-            "analysis and is not an AI-generated assessment."
-        )
-
-        st.divider()
-        st.caption("RepoLens • Repository Analysis Engine")
-
     except Exception as error:
         st.error(f"Analysis failed: {error}")
+
+
+# Evaluation history
+st.divider()
+st.header("📜 Evaluation History")
+
+history = st.session_state.history
+
+if history:
+    st.caption(
+        "Previous analyses stored in this browser session."
+    )
+
+    history_table = [
+        {
+            "Repository": item["repository"],
+            "Score": item["score"],
+            "Status": item["status"],
+            "Date": item["date"][:19].replace("T", " ")
+        }
+        for item in reversed(history)
+    ]
+
+    st.dataframe(
+        history_table,
+        use_container_width=True,
+        hide_index=True
+    )
+
+    if len(history) >= 2:
+        st.subheader("📊 Score Comparison")
+
+        comparison = {}
+
+        for item in history:
+            comparison[item["repository"]] = item["score"]
+
+        st.bar_chart(
+            comparison,
+            y_label="Project Score",
+            x_label="Repository"
+        )
+
+    if st.button("🗑️ Clear History"):
+        st.session_state.history = []
+        st.rerun()
+
+else:
+    st.info(
+        "No previous analyses in this session. "
+        "Analyze a repository to start tracking results."
+    )
+
+st.divider()
+st.caption("RepoLens • Repository Analysis Engine")
