@@ -12,6 +12,7 @@ from github_reader import (
 
 from analyzer import (
     analyze_files,
+    analyze_code_quality,
     get_project_summary
 )
 
@@ -25,43 +26,36 @@ st.set_page_config(
 )
 
 st.title("🔍 RepoLens")
-st.caption("GitHub Repository Analyzer & Project Evaluator")
+st.caption("GitHub Repository Analyzer & Code Quality Inspector")
 
 if "history" not in st.session_state:
     st.session_state.history = []
+
+
+def create_report(info, analysis, quality, evaluation):
+    return {
+        "generated_at": datetime.now().astimezone().isoformat(),
+        "repository": {
+            "name": info.get("name"),
+            "owner": info.get("owner", {}).get("login"),
+            "url": info.get("html_url"),
+            "description": info.get("description"),
+            "language": info.get("language"),
+            "stars": info.get("stargazers_count", 0),
+            "forks": info.get("forks_count", 0)
+        },
+        "analysis": analysis,
+        "code_quality": quality,
+        "evaluation": evaluation
+    }
+
 
 repo_url = st.text_input(
     "GitHub Repository URL",
     placeholder="https://github.com/user/repository"
 )
 
-
-def create_report(info, analysis, evaluation):
-    return {
-        "report": {
-            "generated_at": datetime.now().astimezone().isoformat(),
-            "repository": {
-                "name": info.get("name"),
-                "owner": info.get("owner", {}).get("login"),
-                "url": info.get("html_url"),
-                "description": info.get("description"),
-                "primary_language": info.get("language"),
-                "default_branch": info.get("default_branch"),
-                "stars": info.get("stargazers_count", 0),
-                "forks": info.get("forks_count", 0),
-                "open_issues": info.get("open_issues_count", 0)
-            },
-            "analysis": analysis,
-            "evaluation": evaluation
-        }
-    }
-
-
 if st.button("🚀 Analyze Repository", type="primary"):
-
-    if not repo_url.strip():
-        st.warning("Please enter a GitHub repository URL.")
-        st.stop()
 
     parts = repo_url.strip().rstrip("/").split("/")
 
@@ -77,7 +71,7 @@ if st.button("🚀 Analyze Repository", type="primary"):
     repo = parts[4].removesuffix(".git")
 
     try:
-        with st.spinner("Scanning repository..."):
+        with st.spinner("Scanning repository and source code..."):
             info = get_repo_info(owner, repo)
             branch = info.get("default_branch", "main")
 
@@ -85,6 +79,14 @@ if st.button("🚀 Analyze Repository", type="primary"):
             readme = get_readme(owner, repo)
 
             analysis = analyze_files(files)
+
+            quality = analyze_code_quality(
+                files,
+                owner,
+                repo,
+                branch
+            )
+
             evaluation = evaluate_repository(
                 info,
                 analysis,
@@ -94,20 +96,13 @@ if st.button("🚀 Analyze Repository", type="primary"):
             report = create_report(
                 info,
                 analysis,
+                quality,
                 evaluation
             )
 
-        # Save to session history
-        st.session_state.history.append({
-            "repository": info.get("full_name", repo),
-            "score": evaluation["score"],
-            "status": evaluation["status"],
-            "date": report["report"]["generated_at"],
-            "report": report
-        })
-
         st.success("Analysis completed!")
 
+        # Project score
         st.header("🤖 Project Evaluation")
 
         col1, col2 = st.columns([1, 2])
@@ -122,18 +117,7 @@ if st.button("🚀 Analyze Repository", type="primary"):
             st.subheader(evaluation["status"])
             st.progress(evaluation["score"] / 100)
 
-        st.subheader("📊 Evaluation Breakdown")
-
-        for category, value in evaluation["scores"].items():
-            col1, col2 = st.columns([4, 1])
-
-            with col1:
-                st.write(f"**{category}**")
-                st.progress(value / 20)
-
-            with col2:
-                st.write(f"**{value}/20**")
-
+        # Overview
         st.divider()
         st.subheader("📦 Repository Overview")
 
@@ -144,143 +128,135 @@ if st.button("🚀 Analyze Repository", type="primary"):
         col3.metric("🐛 Issues", info.get("open_issues_count", 0))
         col4.metric("📁 Files", analysis["total_files"])
 
-        st.subheader("📋 Repository Information")
-
-        st.write(f"**Name:** {info.get('name', 'Unknown')}")
-        st.write(f"**Owner:** {owner}")
-        st.write(f"**Branch:** {branch}")
-        st.write(f"**Language:** {info.get('language') or 'Not detected'}")
+        st.write(f"**Repository:** {info.get('full_name', repo)}")
         st.write(f"**Description:** {info.get('description') or 'No description'}")
-
-        st.divider()
-        st.subheader("🧠 Project Understanding")
         st.info(get_project_summary(analysis))
 
-        st.subheader("💻 Technologies")
+        # Existing evaluation breakdown
+        st.divider()
+        st.subheader("📊 Evaluation Breakdown")
 
-        if analysis["languages"]:
-            for item in analysis["languages"]:
-                st.write(
-                    f"• **{item['language']}** — {item['files']} files"
-                )
+        for category, value in evaluation["scores"].items():
+            st.write(f"**{category}: {value}/20**")
+            st.progress(value / 20)
+
+        # Code quality section
+        st.divider()
+        st.header("🧹 Code Quality Analysis")
+
+        st.caption(
+            "Static checks on up to 30 source files. "
+            "These checks do not prove code correctness or security."
+        )
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        col1.metric("Scanned Files", quality["scanned_files"])
+        col2.metric("Lines of Code", quality["total_lines"])
+        col3.metric("Long Lines", quality["long_lines"])
+        col4.metric("Large Files", quality["large_files"])
+
+        st.write(
+            f"**Empty files:** {quality['empty_files']}"
+        )
+
+        if quality["findings"]:
+            st.subheader("🔎 Findings")
+
+            for finding in quality["findings"]:
+                with st.expander(
+                    f"{finding['severity']}: {finding['file']}"
+                ):
+                    st.write(finding["issue"])
         else:
-            st.write("No supported technologies detected.")
+            st.success(
+                "No issues were detected by these basic checks."
+            )
 
-        st.subheader("🧩 Detected Tools")
+        if quality["scanned_files"] == 0:
+            st.warning(
+                "No source files could be scanned. "
+                "The repository may be empty, inaccessible, "
+                "or contain unsupported files."
+            )
 
-        if analysis["tools"]:
-            for tool in analysis["tools"]:
-                st.write(f"• {tool}")
-        else:
-            st.write("No major configuration files detected.")
-
+        # Evaluation feedback
         st.divider()
         st.subheader("💪 Strengths")
 
         for item in evaluation["strengths"]:
-            st.success(f"✓ {item}")
+            st.success(item)
 
         st.subheader("⚠️ Weaknesses")
 
-        if evaluation["weaknesses"]:
-            for item in evaluation["weaknesses"]:
-                st.warning(f"• {item}")
-        else:
-            st.write("No major weaknesses detected.")
+        for item in evaluation["weaknesses"]:
+            st.warning(item)
 
-        st.subheader("💡 Improvement Suggestions")
+        st.subheader("💡 Suggestions")
 
-        if evaluation["suggestions"]:
-            for item in evaluation["suggestions"]:
-                st.info(f"→ {item}")
-        else:
-            st.write("No suggestions available.")
+        for item in evaluation["suggestions"]:
+            st.info(item)
 
+        # README
         if readme:
             st.divider()
-            st.subheader("📖 Repository README")
+            st.subheader("📖 README")
 
             with st.expander("View README"):
                 st.markdown(readme)
 
+        # Download report
         st.divider()
-        st.subheader("📁 Repository Structure")
-
-        with st.expander("View all files"):
-            for file in files:
-                if file.get("type") == "blob":
-                    st.code(file["path"])
-
-        st.divider()
-        st.header("📥 Export Evaluation Report")
-
-        report_json = json.dumps(
-            report,
-            indent=4,
-            ensure_ascii=False
-        )
+        st.header("📥 Export Report")
 
         st.download_button(
-            label="⬇️ Download JSON Report",
-            data=report_json,
-            file_name=f"{repo}_evaluation_report.json",
+            "⬇️ Download JSON Report",
+            data=json.dumps(
+                report,
+                indent=4,
+                ensure_ascii=False
+            ),
+            file_name=f"{repo}_report.json",
             mime="application/json"
         )
+
+        # Session history
+        st.session_state.history.append({
+            "repository": info.get("full_name", repo),
+            "score": evaluation["score"],
+            "date": report["generated_at"]
+        })
 
     except Exception as error:
         st.error(f"Analysis failed: {error}")
 
 
-# Evaluation history
+# History
 st.divider()
 st.header("📜 Evaluation History")
 
-history = st.session_state.history
-
-if history:
-    st.caption(
-        "Previous analyses stored in this browser session."
-    )
-
-    history_table = [
-        {
-            "Repository": item["repository"],
-            "Score": item["score"],
-            "Status": item["status"],
-            "Date": item["date"][:19].replace("T", " ")
-        }
-        for item in reversed(history)
-    ]
-
+if st.session_state.history:
     st.dataframe(
-        history_table,
+        list(reversed(st.session_state.history)),
         use_container_width=True,
         hide_index=True
     )
 
-    if len(history) >= 2:
+    if len(st.session_state.history) >= 2:
         st.subheader("📊 Score Comparison")
 
         comparison = {}
 
-        for item in history:
+        for item in st.session_state.history:
             comparison[item["repository"]] = item["score"]
 
-        st.bar_chart(
-            comparison,
-            y_label="Project Score",
-            x_label="Repository"
-        )
+        st.bar_chart(comparison)
 
     if st.button("🗑️ Clear History"):
         st.session_state.history = []
         st.rerun()
-
 else:
-    st.info(
-        "No previous analyses in this session. "
-        "Analyze a repository to start tracking results."
-    )
+    st.info("No analyses in this session yet.")
 
 st.divider()
-st.caption("RepoLens • Repository Analysis Engine")
+st.caption("RepoLens • Code Quality & Repository Analysis")
