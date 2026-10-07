@@ -7,11 +7,13 @@ from github_reader import (
     get_repo_files,
     get_readme
 )
+
 from analyzer import (
     get_project_summary,
     analyze_code_quality,
     scan_security
 )
+
 from evaluator import evaluate_repository
 
 
@@ -21,11 +23,29 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🔍 RepoLens")
-st.caption("GitHub Repository Analyzer & AI-Style Evaluation Agent")
 
+# =========================================================
+# PAGE HEADER
+# =========================================================
+
+st.title("🔍 RepoLens")
+
+st.caption(
+    "GitHub Repository Analyzer, Evaluator & Comparison Agent"
+)
+
+st.write(
+    "Analyze repositories, evaluate project quality, "
+    "identify security issues, and compare two projects."
+)
+
+
+# =========================================================
+# HELPER FUNCTIONS
+# =========================================================
 
 def parse_github_url(url):
+
     match = re.match(
         r"^https?://github\.com/([^/\s]+)/([^/\s#?]+)",
         url.strip()
@@ -40,572 +60,976 @@ def parse_github_url(url):
     return owner, repo
 
 
-def calculate_health_score(evaluation, quality, security, summary):
+def calculate_health_score(
+    evaluation,
+    quality,
+    security,
+    summary
+):
+
     score = 100
 
-    # Security deductions
     for finding in security.get("findings", []):
+
         if finding["severity"] == "High":
             score -= 8
+
         elif finding["severity"] == "Medium":
             score -= 4
+
         else:
             score -= 2
 
-    # Code quality deductions
     for finding in quality.get("findings", []):
+
         if finding["severity"] == "Low":
             score -= 1
 
-    # Documentation
     if not summary.get("config_files"):
         score -= 3
 
-    # Project structure
     if summary.get("total_files", 0) < 3:
         score -= 5
 
-    # Evaluation score influence
-    evaluation_score = evaluation.get("score", 0)
+    evaluation_score = evaluation.get(
+        "score",
+        0
+    )
 
     if evaluation_score >= 80:
         score += 5
+
     elif evaluation_score < 50:
         score -= 5
 
-    return max(0, min(100, score))
+    return max(
+        0,
+        min(score, 100)
+    )
 
 
 def get_health_status(score):
+
     if score >= 85:
         return "Excellent"
+
     elif score >= 70:
         return "Good"
+
     elif score >= 50:
         return "Needs Improvement"
-    else:
-        return "Poor"
+
+    return "Poor"
 
 
-def generate_verdict(score, security, quality, summary):
-    security_findings = security.get("findings", [])
-    quality_findings = quality.get("findings", [])
+def analyze_repository(owner, repo):
 
-    high_security = sum(
-        1 for item in security_findings
-        if item["severity"] == "High"
+    repo_info = get_repo_info(
+        owner,
+        repo
     )
 
-    if score >= 85:
-        verdict = (
-            "This repository has a strong overall health profile "
-            "with good structure, documentation, and implementation."
+    branch = repo_info.get(
+        "default_branch",
+        "main"
+    )
+
+    files = get_repo_files(
+        owner,
+        repo,
+        branch
+    )
+
+    readme = get_readme(
+        owner,
+        repo
+    )
+
+    summary = get_project_summary(
+        files
+    )
+
+    evaluation = evaluate_repository(
+        repo_info,
+        files,
+        readme
+    )
+
+    quality = analyze_code_quality(
+        files,
+        owner,
+        repo,
+        branch
+    )
+
+    security = scan_security(
+        files,
+        owner,
+        repo,
+        branch
+    )
+
+    health_score = calculate_health_score(
+        evaluation,
+        quality,
+        security,
+        summary
+    )
+
+    return {
+        "repo_info": repo_info,
+        "branch": branch,
+        "files": files,
+        "readme": readme,
+        "summary": summary,
+        "evaluation": evaluation,
+        "quality": quality,
+        "security": security,
+        "health_score": health_score,
+        "health_status": get_health_status(
+            health_score
         )
-    elif score >= 70:
-        verdict = (
-            "This repository has a solid foundation, but a few "
-            "areas should be improved before considering it production-ready."
-        )
-    elif score >= 50:
-        verdict = (
-            "This repository is functional but has several areas "
-            "that require improvement in quality, structure, or security."
-        )
-    else:
-        verdict = (
-            "This repository requires significant improvements "
-            "before it can be considered well-maintained."
-        )
+    }
 
-    if high_security > 0:
-        verdict += (
-            f" {high_security} high-severity security issue(s) "
-            "were detected."
-        )
 
-    if quality_findings:
-        verdict += (
-            " Code-quality issues were also detected."
-        )
+def security_count(data, severity):
 
-    if not summary.get("config_files"):
-        verdict += (
-            " Adding standard configuration files would improve "
-            "project completeness."
-        )
-
-    return verdict
-
-
-def show_findings(findings):
-    if not findings:
-        st.success("No issues detected.")
-        return
-
-    for finding in findings:
-        severity = finding["severity"]
-
-        if severity == "High":
-            icon = "🔴"
-        elif severity == "Medium":
-            icon = "🟠"
-        else:
-            icon = "🟡"
-
-        with st.expander(
-            f"{icon} {severity}: {finding['issue']}"
-        ):
-            st.write(f"**File:** {finding['file']}")
-
-
-repo_url = st.text_input(
-    "GitHub Repository URL",
-    placeholder="https://github.com/username/repository"
-)
-
-
-if st.button("🚀 Analyze Repository", type="primary"):
-
-    owner, repo = parse_github_url(repo_url)
-
-    if not owner or not repo:
-        st.error("Please enter a valid public GitHub repository URL.")
-        st.stop()
-
-    try:
-
-        with st.spinner("🔍 RepoLens is analyzing the repository..."):
-
-            repo_info = get_repo_info(owner, repo)
-
-            branch = repo_info.get(
-                "default_branch",
-                "main"
-            )
-
-            files = get_repo_files(
-                owner,
-                repo,
-                branch
-            )
-
-            readme = get_readme(
-                owner,
-                repo
-            )
-
-            summary = get_project_summary(files)
-
-            evaluation = evaluate_repository(
-                repo_info,
-                files,
-                readme
-            )
-
-            quality = analyze_code_quality(
-                files,
-                owner,
-                repo,
-                branch
-            )
-
-            security = scan_security(
-                files,
-                owner,
-                repo,
-                branch
-            )
-
-            health_score = calculate_health_score(
-                evaluation,
-                quality,
-                security,
-                summary
-            )
-
-            health_status = get_health_status(
-                health_score
-            )
-
-            verdict = generate_verdict(
-                health_score,
-                security,
-                quality,
-                summary
-            )
-
-        st.success("✅ Repository analysis completed!")
-
-        # --------------------------------------------------
-        # REPOSITORY OVERVIEW
-        # --------------------------------------------------
-
-        st.divider()
-        st.header("📊 Repository Overview")
-
-        col1, col2, col3, col4 = st.columns(4)
-
-        col1.metric(
-            "Files",
-            summary.get("total_files", 0)
-        )
-
-        col2.metric(
-            "Stars",
-            repo_info.get("stargazers_count", 0)
-        )
-
-        col3.metric(
-            "Forks",
-            repo_info.get("forks_count", 0)
-        )
-
-        col4.metric(
-            "Health",
-            f"{health_score}/100"
-        )
-
-        st.write(
-            "**Description:**",
-            repo_info.get("description")
-            or "No description available."
-        )
-
-        # --------------------------------------------------
-        # HEALTH SCORE
-        # --------------------------------------------------
-
-        st.divider()
-        st.header("❤️ Repository Health")
-
-        col1, col2 = st.columns([1, 2])
-
-        with col1:
-
-            st.metric(
-                "Health Score",
-                f"{health_score}/100"
-            )
-
-            st.write(
-                f"### Status: **{health_status}**"
-            )
-
-        with col2:
-
-            st.progress(
-                health_score / 100
-            )
-
-            st.write(
-                "Repository Health measures the overall "
-                "quality, structure, security and completeness "
-                "of the analyzed repository."
-            )
-
-        # --------------------------------------------------
-        # AI-STYLE VERDICT
-        # --------------------------------------------------
-
-        st.subheader("🤖 RepoLens Verdict")
-
-        st.info(verdict)
-
-        # --------------------------------------------------
-        # EVALUATION
-        # --------------------------------------------------
-
-        st.divider()
-        st.header("🧠 Project Evaluation")
-
-        evaluation_score = evaluation.get(
-            "score",
-            0
-        )
-
-        st.metric(
-            "Evaluation Score",
-            f"{evaluation_score}/100"
-        )
-
-        st.write(
-            "**Status:**",
-            evaluation.get(
-                "status",
-                "Not available"
-            )
-        )
-
-        scores = evaluation.get(
-            "scores",
-            {}
-        )
-
-        if scores:
-
-            st.subheader("Score Breakdown")
-
-            for category, score in scores.items():
-
-                st.write(
-                    f"**{category}:** {score}/20"
-                )
-
-                st.progress(
-                    min(
-                        max(score / 20, 0),
-                        1
-                    )
-                )
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-
-            st.subheader("✅ Strengths")
-
-            for item in evaluation.get(
-                "strengths",
-                []
-            ):
-                st.write(
-                    f"• {item}"
-                )
-
-        with col2:
-
-            st.subheader("⚠️ Weaknesses")
-
-            for item in evaluation.get(
-                "weaknesses",
-                []
-            ):
-                st.write(
-                    f"• {item}"
-                )
-
-        st.subheader("💡 Suggestions")
-
-        for item in evaluation.get(
-            "suggestions",
-            []
-        ):
-            st.write(
-                f"• {item}"
-            )
-
-        # --------------------------------------------------
-        # PROJECT STRUCTURE
-        # --------------------------------------------------
-
-        st.divider()
-        st.header("🏗️ Project Structure")
-
-        languages = summary.get(
-            "languages",
-            {}
-        )
-
-        if languages:
-
-            st.subheader("Detected Languages")
-
-            for language, count in languages.items():
-
-                st.write(
-                    f"**{language}:** {count} file(s)"
-                )
-
-        else:
-
-            st.info(
-                "No supported programming languages detected."
-            )
-
-        config_files = summary.get(
-            "config_files",
-            []
-        )
-
-        st.subheader("⚙️ Configuration Files")
-
-        if config_files:
-
-            for file in config_files:
-
-                st.write(
-                    f"• {file}"
-                )
-
-        else:
-
-            st.warning(
-                "No common configuration files detected."
-            )
-
-        # --------------------------------------------------
-        # CODE QUALITY
-        # --------------------------------------------------
-
-        st.divider()
-        st.header("💻 Code Quality")
-
-        st.metric(
-            "Source Files Checked",
-            quality.get(
-                "checked_files",
-                0
-            )
-        )
-
-        show_findings(
-            quality.get(
-                "findings",
-                []
-            )
-        )
-
-        # --------------------------------------------------
-        # SECURITY
-        # --------------------------------------------------
-
-        st.divider()
-        st.header("🔐 Security Scan")
-
-        security_findings = security.get(
+    return sum(
+        1
+        for finding in data["security"].get(
             "findings",
             []
         )
+        if finding["severity"] == severity
+    )
 
-        high = sum(
-            1
-            for item in security_findings
-            if item["severity"] == "High"
+
+def get_languages(data):
+
+    languages = data["summary"].get(
+        "languages",
+        {}
+    )
+
+    if not languages:
+        return "None detected"
+
+    return ", ".join(
+        languages.keys()
+    )
+
+
+def get_winner(score_a, score_b):
+
+    if score_a > score_b:
+        return "Repository A 🏆"
+
+    elif score_b > score_a:
+        return "Repository B 🏆"
+
+    return "Tie 🤝"
+
+
+# =========================================================
+# TABS
+# =========================================================
+
+tab1, tab2 = st.tabs(
+    [
+        "🔍 Analyze Repository",
+        "⚔️ Compare Repositories"
+    ]
+)
+
+
+# =========================================================
+# SINGLE REPOSITORY ANALYZER
+# =========================================================
+
+with tab1:
+
+    repo_url = st.text_input(
+        "GitHub Repository URL",
+        placeholder="https://github.com/username/repository",
+        key="single_repo"
+    )
+
+    if st.button(
+        "🚀 Analyze Repository",
+        type="primary"
+    ):
+
+        owner, repo = parse_github_url(
+            repo_url
         )
 
-        medium = sum(
-            1
-            for item in security_findings
-            if item["severity"] == "Medium"
-        )
+        if not owner or not repo:
 
-        low = sum(
-            1
-            for item in security_findings
-            if item["severity"] == "Low"
-        )
-
-        col1, col2, col3 = st.columns(3)
-
-        col1.metric(
-            "🔴 High",
-            high
-        )
-
-        col2.metric(
-            "🟠 Medium",
-            medium
-        )
-
-        col3.metric(
-            "🟡 Low",
-            low
-        )
-
-        show_findings(
-            security_findings
-        )
-
-        # --------------------------------------------------
-        # README
-        # --------------------------------------------------
-
-        st.divider()
-        st.header("📖 README Preview")
-
-        if readme:
-
-            st.markdown(
-                readme[:5000]
+            st.error(
+                "Please enter a valid public GitHub repository URL."
             )
 
-            if len(readme) > 5000:
+            st.stop()
 
-                st.caption(
-                    "README preview limited to 5,000 characters."
+        try:
+
+            with st.spinner(
+                "🔍 RepoLens is analyzing the repository..."
+            ):
+
+                data = analyze_repository(
+                    owner,
+                    repo
                 )
 
-        else:
+            repo_info = data["repo_info"]
+            summary = data["summary"]
+            evaluation = data["evaluation"]
+            quality = data["quality"]
+            security = data["security"]
 
-            st.warning(
-                "No README found."
+            st.success(
+                "✅ Analysis completed!"
             )
 
-        # --------------------------------------------------
-        # JSON REPORT
-        # --------------------------------------------------
+            # -------------------------------------------------
+            # OVERVIEW
+            # -------------------------------------------------
 
-        report = {
+            st.divider()
 
-            "repository": {
-                "name": repo_info.get(
-                    "full_name"
-                ),
-                "description": repo_info.get(
-                    "description"
-                ),
-                "url": repo_info.get(
-                    "html_url"
-                ),
-                "stars": repo_info.get(
+            st.header(
+                "📊 Repository Overview"
+            )
+
+            col1, col2, col3, col4 = st.columns(4)
+
+            col1.metric(
+                "Files",
+                summary.get(
+                    "total_files",
+                    0
+                )
+            )
+
+            col2.metric(
+                "⭐ Stars",
+                repo_info.get(
                     "stargazers_count",
                     0
-                ),
-                "forks": repo_info.get(
+                )
+            )
+
+            col3.metric(
+                "🍴 Forks",
+                repo_info.get(
                     "forks_count",
                     0
+                )
+            )
+
+            col4.metric(
+                "❤️ Health",
+                f'{data["health_score"]}/100'
+            )
+
+            st.write(
+                "**Description:**",
+                repo_info.get(
+                    "description"
+                ) or "No description available."
+            )
+
+            # -------------------------------------------------
+            # HEALTH
+            # -------------------------------------------------
+
+            st.divider()
+
+            st.header(
+                "❤️ Repository Health"
+            )
+
+            col1, col2 = st.columns(
+                [1, 2]
+            )
+
+            with col1:
+
+                st.metric(
+                    "Health Score",
+                    f'{data["health_score"]}/100'
+                )
+
+                st.write(
+                    f'### {data["health_status"]}'
+                )
+
+            with col2:
+
+                st.progress(
+                    data["health_score"] / 100
+                )
+
+                st.write(
+                    "Health score combines project structure, "
+                    "evaluation, code quality and security checks."
+                )
+
+            # -------------------------------------------------
+            # EVALUATION
+            # -------------------------------------------------
+
+            st.divider()
+
+            st.header(
+                "🧠 Project Evaluation"
+            )
+
+            st.metric(
+                "Evaluation Score",
+                f'{evaluation.get("score", 0)}/100'
+            )
+
+            st.write(
+                "**Status:**",
+                evaluation.get(
+                    "status",
+                    "Not available"
+                )
+            )
+
+            scores = evaluation.get(
+                "scores",
+                {}
+            )
+
+            if scores:
+
+                st.subheader(
+                    "Score Breakdown"
+                )
+
+                for category, score in scores.items():
+
+                    st.write(
+                        f"**{category}:** {score}/20"
+                    )
+
+                    st.progress(
+                        min(
+                            max(
+                                score / 20,
+                                0
+                            ),
+                            1
+                        )
+                    )
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+
+                st.subheader(
+                    "✅ Strengths"
+                )
+
+                for item in evaluation.get(
+                    "strengths",
+                    []
+                ):
+
+                    st.write(
+                        f"• {item}"
+                    )
+
+            with col2:
+
+                st.subheader(
+                    "⚠️ Weaknesses"
+                )
+
+                for item in evaluation.get(
+                    "weaknesses",
+                    []
+                ):
+
+                    st.write(
+                        f"• {item}"
+                    )
+
+            st.subheader(
+                "💡 Suggestions"
+            )
+
+            for item in evaluation.get(
+                "suggestions",
+                []
+            ):
+
+                st.write(
+                    f"• {item}"
+                )
+
+            # -------------------------------------------------
+            # LANGUAGES
+            # -------------------------------------------------
+
+            st.divider()
+
+            st.header(
+                "💻 Technology Stack"
+            )
+
+            languages = summary.get(
+                "languages",
+                {}
+            )
+
+            if languages:
+
+                for language, count in languages.items():
+
+                    st.write(
+                        f"**{language}:** {count} file(s)"
+                    )
+
+            else:
+
+                st.info(
+                    "No supported programming languages detected."
+                )
+
+            # -------------------------------------------------
+            # CODE QUALITY
+            # -------------------------------------------------
+
+            st.divider()
+
+            st.header(
+                "🧹 Code Quality"
+            )
+
+            st.metric(
+                "Source Files Checked",
+                quality.get(
+                    "checked_files",
+                    0
+                )
+            )
+
+            quality_findings = quality.get(
+                "findings",
+                []
+            )
+
+            if quality_findings:
+
+                for finding in quality_findings:
+
+                    with st.expander(
+                        f'⚠️ {finding["severity"]}: '
+                        f'{finding["issue"]}'
+                    ):
+
+                        st.write(
+                            f'**File:** {finding["file"]}'
+                        )
+
+            else:
+
+                st.success(
+                    "No code quality issues detected."
+                )
+
+            # -------------------------------------------------
+            # SECURITY
+            # -------------------------------------------------
+
+            st.divider()
+
+            st.header(
+                "🔐 Security Scan"
+            )
+
+            high = security_count(
+                data,
+                "High"
+            )
+
+            medium = security_count(
+                data,
+                "Medium"
+            )
+
+            low = security_count(
+                data,
+                "Low"
+            )
+
+            col1, col2, col3 = st.columns(3)
+
+            col1.metric(
+                "🔴 High",
+                high
+            )
+
+            col2.metric(
+                "🟠 Medium",
+                medium
+            )
+
+            col3.metric(
+                "🟡 Low",
+                low
+            )
+
+            findings = security.get(
+                "findings",
+                []
+            )
+
+            if findings:
+
+                for finding in findings:
+
+                    with st.expander(
+                        f'🔎 {finding["severity"]}: '
+                        f'{finding["issue"]}'
+                    ):
+
+                        st.write(
+                            f'**File:** {finding["file"]}'
+                        )
+
+            else:
+
+                st.success(
+                    "No security findings detected."
+                )
+
+            # -------------------------------------------------
+            # README
+            # -------------------------------------------------
+
+            st.divider()
+
+            st.header(
+                "📖 README Preview"
+            )
+
+            if data["readme"]:
+
+                st.markdown(
+                    data["readme"][:5000]
+                )
+
+            else:
+
+                st.warning(
+                    "No README found."
+                )
+
+            # -------------------------------------------------
+            # EXPORT
+            # -------------------------------------------------
+
+            st.divider()
+
+            report = {
+                "repository": repo_info,
+                "health_score": data["health_score"],
+                "health_status": data["health_status"],
+                "evaluation": evaluation,
+                "summary": summary,
+                "code_quality": quality,
+                "security": security
+            }
+
+            st.download_button(
+                "📥 Download JSON Report",
+                data=json.dumps(
+                    report,
+                    indent=4
                 ),
-                "default_branch": branch
-            },
+                file_name=f"{repo}-repolens-report.json",
+                mime="application/json"
+            )
 
-            "health": {
-                "score": health_score,
-                "status": health_status,
-                "verdict": verdict
-            },
+        except Exception as error:
 
-            "evaluation": evaluation,
+            st.error(
+                f"❌ Analysis failed: {error}"
+            )
 
-            "project_summary": summary,
 
-            "code_quality": quality,
+# =========================================================
+# REPOSITORY COMPARISON
+# =========================================================
 
-            "security": security
-        }
+with tab2:
 
-        st.divider()
-        st.header("📥 Export Report")
+    st.header(
+        "⚔️ Compare Two GitHub Repositories"
+    )
 
-        st.download_button(
-            "Download JSON Report",
-            data=json.dumps(
-                report,
-                indent=4
-            ),
-            file_name=f"{repo}-repolens-report.json",
-            mime="application/json"
+    st.write(
+        "Compare two projects using the same RepoLens "
+        "evaluation criteria."
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        repo_a_url = st.text_input(
+            "Repository A",
+            placeholder="https://github.com/user/project-a",
+            key="repo_a"
         )
 
-    except Exception as error:
+    with col2:
 
-        st.error(
-            f"❌ Analysis failed: {error}"
+        repo_b_url = st.text_input(
+            "Repository B",
+            placeholder="https://github.com/user/project-b",
+            key="repo_b"
         )
 
+    if st.button(
+        "⚔️ Compare Repositories",
+        type="primary"
+    ):
+
+        owner_a, repo_a = parse_github_url(
+            repo_a_url
+        )
+
+        owner_b, repo_b = parse_github_url(
+            repo_b_url
+        )
+
+        if not owner_a or not repo_a:
+
+            st.error(
+                "Repository A URL is invalid."
+            )
+
+            st.stop()
+
+        if not owner_b or not repo_b:
+
+            st.error(
+                "Repository B URL is invalid."
+            )
+
+            st.stop()
+
+        try:
+
+            with st.spinner(
+                "⚔️ RepoLens is comparing both repositories..."
+            ):
+
+                data_a = analyze_repository(
+                    owner_a,
+                    repo_a
+                )
+
+                data_b = analyze_repository(
+                    owner_b,
+                    repo_b
+                )
+
+            st.success(
+                "✅ Comparison completed!"
+            )
+
+            # -------------------------------------------------
+            # WINNER
+            # -------------------------------------------------
+
+            score_a = data_a["health_score"]
+            score_b = data_b["health_score"]
+
+            winner = get_winner(
+                score_a,
+                score_b
+            )
+
+            st.divider()
+
+            st.header(
+                "🏆 Comparison Result"
+            )
+
+            if score_a == score_b:
+
+                st.info(
+                    "Both repositories have the same health score."
+                )
+
+            else:
+
+                st.success(
+                    f"🏆 Current winner: **{winner}**"
+                )
+
+            # -------------------------------------------------
+            # SCORE COMPARISON
+            # -------------------------------------------------
+
+            st.subheader(
+                "❤️ Health Score"
+            )
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+
+                st.metric(
+                    repo_a,
+                    f"{score_a}/100"
+                )
+
+                st.progress(
+                    score_a / 100
+                )
+
+            with col2:
+
+                st.metric(
+                    repo_b,
+                    f"{score_b}/100"
+                )
+
+                st.progress(
+                    score_b / 100
+                )
+
+            # -------------------------------------------------
+            # COMPARISON TABLE
+            # -------------------------------------------------
+
+            st.subheader(
+                "📊 Detailed Comparison"
+            )
+
+            comparison = {
+
+                "Metric": [
+                    "Health Score",
+                    "Health Status",
+                    "Evaluation Score",
+                    "Files",
+                    "⭐ Stars",
+                    "🍴 Forks",
+                    "Languages",
+                    "🔴 High Security Issues",
+                    "🟠 Medium Security Issues",
+                    "🟡 Low Security Issues"
+                ],
+
+                repo_a: [
+                    data_a["health_score"],
+                    data_a["health_status"],
+                    data_a["evaluation"].get(
+                        "score",
+                        0
+                    ),
+                    data_a["summary"].get(
+                        "total_files",
+                        0
+                    ),
+                    data_a["repo_info"].get(
+                        "stargazers_count",
+                        0
+                    ),
+                    data_a["repo_info"].get(
+                        "forks_count",
+                        0
+                    ),
+                    get_languages(data_a),
+                    security_count(
+                        data_a,
+                        "High"
+                    ),
+                    security_count(
+                        data_a,
+                        "Medium"
+                    ),
+                    security_count(
+                        data_a,
+                        "Low"
+                    )
+                ],
+
+                repo_b: [
+                    data_b["health_score"],
+                    data_b["health_status"],
+                    data_b["evaluation"].get(
+                        "score",
+                        0
+                    ),
+                    data_b["summary"].get(
+                        "total_files",
+                        0
+                    ),
+                    data_b["repo_info"].get(
+                        "stargazers_count",
+                        0
+                    ),
+                    data_b["repo_info"].get(
+                        "forks_count",
+                        0
+                    ),
+                    get_languages(data_b),
+                    security_count(
+                        data_b,
+                        "High"
+                    ),
+                    security_count(
+                        data_b,
+                        "Medium"
+                    ),
+                    security_count(
+                        data_b,
+                        "Low"
+                    )
+                ]
+            }
+
+            st.table(
+                comparison
+            )
+
+            # -------------------------------------------------
+            # EVALUATION COMPARISON
+            # -------------------------------------------------
+
+            st.divider()
+
+            st.subheader(
+                "🧠 Evaluation Comparison"
+            )
+
+            eval_a = data_a["evaluation"].get(
+                "score",
+                0
+            )
+
+            eval_b = data_b["evaluation"].get(
+                "score",
+                0
+            )
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+
+                st.metric(
+                    f"{repo_a} Evaluation",
+                    f"{eval_a}/100"
+                )
+
+            with col2:
+
+                st.metric(
+                    f"{repo_b} Evaluation",
+                    f"{eval_b}/100"
+                )
+
+            # -------------------------------------------------
+            # STRENGTHS
+            # -------------------------------------------------
+
+            st.divider()
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+
+                st.subheader(
+                    f"✅ {repo_a} Strengths"
+                )
+
+                for item in data_a[
+                    "evaluation"
+                ].get(
+                    "strengths",
+                    []
+                ):
+
+                    st.write(
+                        f"• {item}"
+                    )
+
+            with col2:
+
+                st.subheader(
+                    f"✅ {repo_b} Strengths"
+                )
+
+                for item in data_b[
+                    "evaluation"
+                ].get(
+                    "strengths",
+                    []
+                ):
+
+                    st.write(
+                        f"• {item}"
+                    )
+
+            # -------------------------------------------------
+            # FINAL VERDICT
+            # -------------------------------------------------
+
+            st.divider()
+
+            st.header(
+                "🤖 RepoLens Final Verdict"
+            )
+
+            if score_a > score_b:
+
+                difference = score_a - score_b
+
+                st.success(
+                    f"🏆 **{repo_a}** has the stronger overall "
+                    f"repository health by **{difference} points**."
+                )
+
+            elif score_b > score_a:
+
+                difference = score_b - score_a
+
+                st.success(
+                    f"🏆 **{repo_b}** has the stronger overall "
+                    f"repository health by **{difference} points**."
+                )
+
+            else:
+
+                st.info(
+                    "🤝 Both repositories have equal overall health."
+                )
+
+        except Exception as error:
+
+            st.error(
+                f"❌ Comparison failed: {error}"
+            )
+
+
+# =========================================================
+# FOOTER
+# =========================================================
 
 st.divider()
 
 st.caption(
-    "RepoLens provides automated rule-based analysis and "
-    "AI-style evaluation. It is not a professional security audit."
+    "RepoLens uses automated rule-based analysis. "
+    "Results are intended for project evaluation and "
+    "do not replace professional security audits."
 )
