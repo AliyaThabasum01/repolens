@@ -17,6 +17,10 @@ from analyzer import (
 from evaluator import evaluate_repository
 
 
+# =========================================================
+# PAGE CONFIG
+# =========================================================
+
 st.set_page_config(
     page_title="RepoLens",
     page_icon="🔍",
@@ -25,7 +29,7 @@ st.set_page_config(
 
 
 # =========================================================
-# PAGE HEADER
+# HEADER
 # =========================================================
 
 st.title("🔍 RepoLens")
@@ -36,7 +40,8 @@ st.caption(
 
 st.write(
     "Analyze repositories, evaluate project quality, "
-    "identify security issues, and compare two projects."
+    "identify security issues, compare projects, "
+    "and generate evaluation reports."
 )
 
 
@@ -228,6 +233,316 @@ def get_winner(score_a, score_b):
         return "Repository B 🏆"
 
     return "Tie 🤝"
+
+
+# =========================================================
+# EVALUATION REPORT GENERATOR
+# =========================================================
+
+def create_evaluation_report(data):
+
+    repo = data["repo_info"]
+    summary = data["summary"]
+    evaluation = data["evaluation"]
+    quality = data["quality"]
+    security = data["security"]
+
+    report = []
+
+    report.append("=" * 60)
+    report.append(
+        "REPOLENS - REPOSITORY EVALUATION REPORT"
+    )
+    report.append("=" * 60)
+
+    report.append("")
+    report.append("REPOSITORY OVERVIEW")
+    report.append("-" * 60)
+
+    report.append(
+        f"Repository      : "
+        f"{repo.get('full_name', 'Unknown')}"
+    )
+
+    report.append(
+        f"Description     : "
+        f"{repo.get('description') or 'No description'}"
+    )
+
+    report.append(
+        f"Stars           : "
+        f"{repo.get('stargazers_count', 0)}"
+    )
+
+    report.append(
+        f"Forks           : "
+        f"{repo.get('forks_count', 0)}"
+    )
+
+    report.append(
+        f"Total Files     : "
+        f"{summary.get('total_files', 0)}"
+    )
+
+    report.append("")
+    report.append("OVERALL HEALTH")
+    report.append("-" * 60)
+
+    report.append(
+        f"Health Score    : "
+        f"{data['health_score']}/100"
+    )
+
+    report.append(
+        f"Health Status   : "
+        f"{data['health_status']}"
+    )
+
+    report.append("")
+    report.append("PROJECT EVALUATION")
+    report.append("-" * 60)
+
+    report.append(
+        f"Evaluation Score: "
+        f"{evaluation.get('score', 0)}/100"
+    )
+
+    report.append(
+        f"Status          : "
+        f"{evaluation.get('status', 'Not available')}"
+    )
+
+    scores = evaluation.get(
+        "scores",
+        {}
+    )
+
+    if scores:
+
+        report.append("")
+        report.append("Score Breakdown:")
+
+        for category, score in scores.items():
+
+            report.append(
+                f"- {category}: {score}/20"
+            )
+
+    report.append("")
+    report.append("TECHNOLOGY STACK")
+    report.append("-" * 60)
+
+    languages = summary.get(
+        "languages",
+        {}
+    )
+
+    if languages:
+
+        for language, count in languages.items():
+
+            report.append(
+                f"- {language}: {count} file(s)"
+            )
+
+    else:
+
+        report.append(
+            "No supported languages detected."
+        )
+
+    report.append("")
+    report.append("CONFIGURATION")
+    report.append("-" * 60)
+
+    config_files = summary.get(
+        "config_files",
+        []
+    )
+
+    if config_files:
+
+        for config in config_files:
+
+            report.append(
+                f"- {config}"
+            )
+
+    else:
+
+        report.append(
+            "No common configuration files detected."
+        )
+
+    report.append("")
+    report.append("CODE QUALITY")
+    report.append("-" * 60)
+
+    report.append(
+        f"Files Checked : "
+        f"{quality.get('checked_files', 0)}"
+    )
+
+    quality_findings = quality.get(
+        "findings",
+        []
+    )
+
+    if quality_findings:
+
+        for finding in quality_findings:
+
+            report.append(
+                f"- [{finding['severity']}] "
+                f"{finding['issue']} "
+                f"({finding['file']})"
+            )
+
+    else:
+
+        report.append(
+            "No code quality issues detected."
+        )
+
+    report.append("")
+    report.append("SECURITY")
+    report.append("-" * 60)
+
+    security_findings = security.get(
+        "findings",
+        []
+    )
+
+    if security_findings:
+
+        for finding in security_findings:
+
+            report.append(
+                f"- [{finding['severity']}] "
+                f"{finding['issue']} "
+                f"({finding['file']})"
+            )
+
+    else:
+
+        report.append(
+            "No security findings detected."
+        )
+
+    report.append("")
+    report.append("STRENGTHS")
+    report.append("-" * 60)
+
+    strengths = evaluation.get(
+        "strengths",
+        []
+    )
+
+    if strengths:
+
+        for item in strengths:
+
+            report.append(
+                f"- {item}"
+            )
+
+    else:
+
+        report.append(
+            "No strengths recorded."
+        )
+
+    report.append("")
+    report.append("WEAKNESSES")
+    report.append("-" * 60)
+
+    weaknesses = evaluation.get(
+        "weaknesses",
+        []
+    )
+
+    if weaknesses:
+
+        for item in weaknesses:
+
+            report.append(
+                f"- {item}"
+            )
+
+    else:
+
+        report.append(
+            "No weaknesses recorded."
+        )
+
+    report.append("")
+    report.append("SUGGESTIONS")
+    report.append("-" * 60)
+
+    suggestions = evaluation.get(
+        "suggestions",
+        []
+    )
+
+    if suggestions:
+
+        for item in suggestions:
+
+            report.append(
+                f"- {item}"
+            )
+
+    else:
+
+        report.append(
+            "No suggestions recorded."
+        )
+
+    report.append("")
+    report.append("REPOLENS VERDICT")
+    report.append("-" * 60)
+
+    score = data["health_score"]
+
+    if score >= 85:
+
+        verdict = (
+            "Excellent repository health. "
+            "The project demonstrates strong "
+            "structure, quality and implementation."
+        )
+
+    elif score >= 70:
+
+        verdict = (
+            "Good repository health with some "
+            "areas that can be improved."
+        )
+
+    elif score >= 50:
+
+        verdict = (
+            "The repository is functional but "
+            "requires several improvements."
+        )
+
+    else:
+
+        verdict = (
+            "The repository requires significant "
+            "improvements in quality and security."
+        )
+
+    report.append(verdict)
+
+    report.append("")
+    report.append("=" * 60)
+    report.append(
+        "Generated by RepoLens"
+    )
+    report.append("=" * 60)
+
+    return "\n".join(report)
 
 
 # =========================================================
@@ -472,7 +787,7 @@ with tab1:
                 )
 
             # -------------------------------------------------
-            # LANGUAGES
+            # TECHNOLOGY
             # -------------------------------------------------
 
             st.divider()
@@ -624,6 +939,12 @@ with tab1:
                     data["readme"][:5000]
                 )
 
+                if len(data["readme"]) > 5000:
+
+                    st.caption(
+                        "README preview limited to 5,000 characters."
+                    )
+
             else:
 
                 st.warning(
@@ -631,10 +952,14 @@ with tab1:
                 )
 
             # -------------------------------------------------
-            # EXPORT
+            # DOWNLOAD REPORTS
             # -------------------------------------------------
 
             st.divider()
+
+            st.header(
+                "📥 Export Reports"
+            )
 
             report = {
                 "repository": repo_info,
@@ -646,15 +971,36 @@ with tab1:
                 "security": security
             }
 
-            st.download_button(
-                "📥 Download JSON Report",
-                data=json.dumps(
-                    report,
-                    indent=4
-                ),
-                file_name=f"{repo}-repolens-report.json",
-                mime="application/json"
+            evaluation_report = create_evaluation_report(
+                data
             )
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+
+                st.download_button(
+                    "📄 Download Evaluation Report",
+                    data=evaluation_report,
+                    file_name=(
+                        f"{repo}-repolens-evaluation.txt"
+                    ),
+                    mime="text/plain"
+                )
+
+            with col2:
+
+                st.download_button(
+                    "📋 Download JSON Report",
+                    data=json.dumps(
+                        report,
+                        indent=4
+                    ),
+                    file_name=(
+                        f"{repo}-repolens-report.json"
+                    ),
+                    mime="application/json"
+                )
 
         except Exception as error:
 
@@ -745,10 +1091,6 @@ with tab2:
                 "✅ Comparison completed!"
             )
 
-            # -------------------------------------------------
-            # WINNER
-            # -------------------------------------------------
-
             score_a = data_a["health_score"]
             score_b = data_b["health_score"]
 
@@ -757,26 +1099,22 @@ with tab2:
                 score_b
             )
 
+            # -------------------------------------------------
+            # WINNER
+            # -------------------------------------------------
+
             st.divider()
 
             st.header(
                 "🏆 Comparison Result"
             )
 
-            if score_a == score_b:
-
-                st.info(
-                    "Both repositories have the same health score."
-                )
-
-            else:
-
-                st.success(
-                    f"🏆 Current winner: **{winner}**"
-                )
+            st.success(
+                f"Current winner: **{winner}**"
+            )
 
             # -------------------------------------------------
-            # SCORE COMPARISON
+            # HEALTH SCORES
             # -------------------------------------------------
 
             st.subheader(
@@ -808,7 +1146,7 @@ with tab2:
                 )
 
             # -------------------------------------------------
-            # COMPARISON TABLE
+            # TABLE
             # -------------------------------------------------
 
             st.subheader(
@@ -831,33 +1169,45 @@ with tab2:
                 ],
 
                 repo_a: [
+
                     data_a["health_score"],
+
                     data_a["health_status"],
+
                     data_a["evaluation"].get(
                         "score",
                         0
                     ),
+
                     data_a["summary"].get(
                         "total_files",
                         0
                     ),
+
                     data_a["repo_info"].get(
                         "stargazers_count",
                         0
                     ),
+
                     data_a["repo_info"].get(
                         "forks_count",
                         0
                     ),
-                    get_languages(data_a),
+
+                    get_languages(
+                        data_a
+                    ),
+
                     security_count(
                         data_a,
                         "High"
                     ),
+
                     security_count(
                         data_a,
                         "Medium"
                     ),
+
                     security_count(
                         data_a,
                         "Low"
@@ -865,33 +1215,45 @@ with tab2:
                 ],
 
                 repo_b: [
+
                     data_b["health_score"],
+
                     data_b["health_status"],
+
                     data_b["evaluation"].get(
                         "score",
                         0
                     ),
+
                     data_b["summary"].get(
                         "total_files",
                         0
                     ),
+
                     data_b["repo_info"].get(
                         "stargazers_count",
                         0
                     ),
+
                     data_b["repo_info"].get(
                         "forks_count",
                         0
                     ),
-                    get_languages(data_b),
+
+                    get_languages(
+                        data_b
+                    ),
+
                     security_count(
                         data_b,
                         "High"
                     ),
+
                     security_count(
                         data_b,
                         "Medium"
                     ),
+
                     security_count(
                         data_b,
                         "Low"
