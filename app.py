@@ -1,5 +1,4 @@
 
-
 import json
 import re
 import requests
@@ -9,14 +8,14 @@ from github_reader import get_repo_info, get_repo_files, get_readme
 from analyzer import get_project_summary, analyze_code_quality, scan_security
 from evaluator import evaluate_repository
 
+
+st.set_page_config(
+    page_title="RepoLens | Repository Insights",
+    page_icon="🔍",
+    layout="wide"
+)
+
 GITHUB_API = "https://api.github.com"
-
-
-def github_headers():
-    return {
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "RepoLens"
-    }
 
 
 def parse_github_url(url):
@@ -26,52 +25,8 @@ def parse_github_url(url):
     )
     if not match:
         return None, None
+
     return match.group(1), match.group(2).removesuffix(".git")
-
-
-def get_activity(owner, repo, branch):
-    result = {
-        "commits": [],
-        "contributors": [],
-        "commit_count": 0,
-        "contributor_count": 0,
-        "error": None
-    }
-
-    try:
-        commit_response = requests.get(
-            f"{GITHUB_API}/repos/{owner}/{repo}/commits",
-            headers=github_headers(),
-            params={"per_page": 10, "sha": branch},
-            timeout=15
-        )
-
-        if commit_response.status_code == 200:
-            commits = commit_response.json()
-            result["commits"] = commits
-            result["commit_count"] = len(commits)
-        else:
-            result["error"] = (
-                f"Commit API returned HTTP {commit_response.status_code}."
-            )
-
-        contributor_response = requests.get(
-            f"{GITHUB_API}/repos/{owner}/{repo}/contributors",
-            headers=github_headers(),
-            params={"per_page": 10},
-            timeout=15
-        )
-
-        if contributor_response.status_code == 200:
-            contributors = contributor_response.json()
-            if isinstance(contributors, list):
-                result["contributors"] = contributors
-                result["contributor_count"] = len(contributors)
-
-    except requests.RequestException as error:
-        result["error"] = f"Could not retrieve activity: {error}"
-
-    return result
 
 
 def analyze_readme(readme):
@@ -83,107 +38,124 @@ def analyze_readme(readme):
             re.search(r"^#\s+.+", text, re.MULTILINE)
         ),
         "Installation instructions": bool(
-            re.search(r"installation|install|getting started|setup", lower)
+            re.search(r"installation|install|setup|getting started", lower)
         ),
         "Usage instructions": bool(
             re.search(r"usage|how to use|running|example", lower)
         ),
-        "Features section": bool(
-            re.search(r"features|key features", lower)
-        ),
+        "Features section": "features" in lower,
         "Technology stack": bool(
-            re.search(
-                r"requirements|prerequisites|technologies|tech stack|built with",
-                lower
-            )
+            re.search(r"tech stack|technologies|built with|prerequisites", lower)
         ),
         "Code example": "```" in text,
         "Contribution guidance": bool(
-            re.search(r"contribut|pull request|issues", lower)
+            re.search(r"contribut|pull request", lower)
         ),
         "License information": "license" in lower
     }
 
     score = round(sum(checks.values()) / len(checks) * 100)
-    missing = [name for name, passed in checks.items() if not passed]
-
-    suggestions_map = {
-        "Project title": "Add a clear project title.",
-        "Installation instructions": "Explain how to install and configure the project.",
-        "Usage instructions": "Add steps showing how to run the project.",
-        "Features section": "List the main project features.",
-        "Technology stack": "Document the technologies and prerequisites.",
-        "Code example": "Add a useful command or code example.",
-        "Contribution guidance": "Explain how people can contribute or report issues.",
-        "License information": "Document the license if applicable."
-    }
-
-    status = (
-        "Excellent" if score >= 85 else
-        "Good" if score >= 65 else
-        "Needs Improvement" if score >= 40 else
-        "Incomplete"
-    )
+    missing = [key for key, value in checks.items() if not value]
 
     return {
         "score": score,
-        "status": status,
+        "status": (
+            "Excellent" if score >= 85 else
+            "Good" if score >= 65 else
+            "Needs Improvement" if score >= 40 else
+            "Incomplete"
+        ),
         "checks": checks,
         "missing_sections": missing,
-        "suggestions": [suggestions_map[item] for item in missing],
         "word_count": len(text.split())
     }
+
+
+def get_recent_activity(owner, repo, branch):
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "RepoLens"
+    }
+
+    result = {
+        "commits": [],
+        "contributors": [],
+        "error": None
+    }
+
+    try:
+        response = requests.get(
+            f"{GITHUB_API}/repos/{owner}/{repo}/commits",
+            headers=headers,
+            params={"per_page": 10, "sha": branch},
+            timeout=15
+        )
+
+        if response.ok:
+            result["commits"] = response.json()
+        else:
+            result["error"] = f"GitHub commits API returned HTTP {response.status_code}."
+
+        response = requests.get(
+            f"{GITHUB_API}/repos/{owner}/{repo}/contributors",
+            headers=headers,
+            params={"per_page": 10},
+            timeout=15
+        )
+
+        if response.ok:
+            contributors = response.json()
+            if isinstance(contributors, list):
+                result["contributors"] = contributors
+
+    except requests.RequestException as error:
+        result["error"] = str(error)
+
+    return result
 
 
 def calculate_health_score(evaluation, quality, security, summary):
     score = 100
 
     for finding in security.get("findings", []):
-        score -= {
-            "High": 8,
-            "Medium": 4,
-            "Low": 2
-        }.get(finding.get("severity"), 0)
+        severity = finding.get("severity", "")
+        score -= {"High": 8, "Medium": 4, "Low": 2}.get(severity, 0)
 
     for finding in quality.get("findings", []):
         if finding.get("severity") == "Low":
             score -= 1
 
-    if not summary.get("config_files"):
-        score -= 3
-
     if summary.get("total_files", 0) < 3:
         score -= 5
 
-    evaluation_score = evaluation.get("score", 0)
-
-    if evaluation_score >= 80:
+    if evaluation.get("score", 0) >= 80:
         score += 5
-    elif evaluation_score < 50:
+    elif evaluation.get("score", 0) < 50:
         score -= 5
 
-    return max(0, min(score, 100))
+    return max(0, min(100, score))
 
 
 def analyze_repository(owner, repo):
-    repo_info = get_repo_info(owner, repo)
-    branch = repo_info.get("default_branch", "main")
+    info = get_repo_info(owner, repo)
+    branch = info.get("default_branch", "main")
+
     files = get_repo_files(owner, repo, branch)
     readme = get_readme(owner, repo)
     summary = get_project_summary(files)
 
-    evaluation = evaluate_repository(repo_info, files, readme)
+    evaluation = evaluate_repository(info, files, readme)
     quality = analyze_code_quality(files, owner, repo, branch)
     security = scan_security(files, owner, repo, branch)
-    readme_analysis = analyze_readme(readme)
-    activity = get_activity(owner, repo, branch)
+    readme_report = analyze_readme(readme)
+    activity = get_recent_activity(owner, repo, branch)
 
-    health_score = calculate_health_score(
+    health = calculate_health_score(
         evaluation, quality, security, summary
     )
 
     return {
-        "repo_info": repo_info,
+        "info": info,
         "branch": branch,
         "files": files,
         "readme": readme,
@@ -191,416 +163,378 @@ def analyze_repository(owner, repo):
         "evaluation": evaluation,
         "quality": quality,
         "security": security,
-        "readme_analysis": readme_analysis,
+        "readme_report": readme_report,
         "activity": activity,
-        "health_score": health_score
+        "health": health
     }
 
 
-def security_count(data, severity):
+def count_severity(data, severity):
     return sum(
         1 for finding in data["security"].get("findings", [])
         if finding.get("severity") == severity
     )
 
 
-def get_languages(data):
-    languages = data["summary"].get("languages", {})
-    return ", ".join(languages.keys()) if languages else "None detected"
+def build_report(data):
+    info = data["info"]
+
+    return {
+        "repository": info.get("full_name"),
+        "description": info.get("description"),
+        "health_score": data["health"],
+        "evaluation": data["evaluation"],
+        "readme_quality": data["readme_report"],
+        "project_summary": data["summary"],
+        "code_quality": data["quality"],
+        "security": data["security"],
+        "recent_activity": {
+            "commits": data["activity"]["commits"],
+            "contributors": data["activity"]["contributors"]
+        }
+    }
 
 
-def create_report(data):
-    repo = data["repo_info"]
-    activity = data["activity"]
+def show_dashboard(data):
+    info = data["info"]
     evaluation = data["evaluation"]
-    readme = data["readme_analysis"]
-
-    lines = [
-        "REPOLENS REPOSITORY REPORT",
-        "=" * 45,
-        f"Repository: {repo.get('full_name', 'Unknown')}",
-        f"Description: {repo.get('description') or 'No description'}",
-        f"Files: {data['summary'].get('total_files', 0)}",
-        f"Stars: {repo.get('stargazers_count', 0)}",
-        f"Forks: {repo.get('forks_count', 0)}",
-        f"Health score: {data['health_score']}/100",
-        f"Evaluation score: {evaluation.get('score', 0)}/100",
-        "",
-        "README QUALITY",
-        "-" * 45,
-        f"Score: {readme['score']}/100",
-        f"Status: {readme['status']}",
-        f"Word count: {readme['word_count']}",
-        "Missing checklist items: " +
-        (", ".join(readme["missing_sections"]) or "None"),
-        "",
-        "GITHUB ACTIVITY",
-        "-" * 45,
-        f"Recent commits retrieved: {activity['commit_count']}",
-        f"Contributors retrieved: {activity['contributor_count']}",
-        "",
-        "RECENT COMMITS"
-    ]
-
-    for commit in activity["commits"]:
-        message = commit.get("commit", {}).get("message", "")
-        lines.append("- " + message.split("\n")[0])
-
-    lines.extend(["", "CONTRIBUTORS"])
-    for person in activity["contributors"]:
-        lines.append(
-            f"- {person.get('login', 'Unknown')}: "
-            f"{person.get('contributions', 0)} contributions"
-        )
-
-    lines.extend(["", "README SUGGESTIONS"])
-    lines.extend("- " + item for item in readme["suggestions"])
-
-    lines.extend(["", "STRENGTHS"])
-    lines.extend(
-        "- " + str(item)
-        for item in evaluation.get("strengths", [])
-    )
-
-    lines.extend(["", "WEAKNESSES"])
-    lines.extend(
-        "- " + str(item)
-        for item in evaluation.get("weaknesses", [])
-    )
-
-    lines.extend([
-        "",
-        "Note: Activity counts show only the latest API results, "
-        "not the complete project history.",
-        "RepoLens uses automated rule-based checks."
-    ])
-
-    return "\n".join(lines)
-
-
-def show_repository(data):
-    repo = data["repo_info"]
     summary = data["summary"]
-    evaluation = data["evaluation"]
+    readme = data["readme_report"]
+    security = data["security"]
     activity = data["activity"]
-    readme = data["readme_analysis"]
 
-    st.header("📊 Repository Overview")
+    st.header("📊 Repository Insights Dashboard")
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Files", summary.get("total_files", 0))
-    c2.metric("⭐ Stars", repo.get("stargazers_count", 0))
-    c3.metric("🍴 Forks", repo.get("forks_count", 0))
-    c4.metric("❤️ Health", f"{data['health_score']}/100")
+    st.markdown(
+        f"### [{info.get('full_name', 'Repository')}]"
+        f"(https://github.com/{info.get('full_name', '')})"
+    )
 
-    st.write("**Description:**", repo.get("description") or "No description available.")
+    st.write(info.get("description") or "No repository description provided.")
+
+    st.caption(
+        f"Default branch: {data['branch']} | "
+        f"Visibility: {'Private' if info.get('private') else 'Public'}"
+    )
 
     st.divider()
-    st.header("🧠 Project Evaluation")
-    st.metric("Evaluation score", f"{evaluation.get('score', 0)}/100")
-    st.write("**Status:**", evaluation.get("status", "Not available"))
+
+    st.subheader("📌 Key Metrics")
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("❤️ Health Score", f"{data['health']}/100")
+    col2.metric("⭐ Stars", info.get("stargazers_count", 0))
+    col3.metric("🍴 Forks", info.get("forks_count", 0))
+    col4.metric("📁 Files", summary.get("total_files", 0))
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("🧠 Evaluation", f"{evaluation.get('score', 0)}/100")
+    col2.metric("📝 README Quality", f"{readme['score']}/100")
+    col3.metric("👥 Contributors Listed", len(activity["contributors"]))
+
+    st.divider()
+
+    st.subheader("📈 Project Health")
+
+    st.progress(data["health"] / 100)
+
+    if data["health"] >= 80:
+        st.success("Strong automated health score. Continue maintaining the project.")
+    elif data["health"] >= 60:
+        st.info("The project has room for improvement.")
+    else:
+        st.warning("Review the findings and improve the project before relying on this score.")
+
+    st.caption(
+        "Health is a heuristic indicator, not a validated measure of software quality."
+    )
+
+    st.divider()
 
     left, right = st.columns(2)
 
     with left:
-        st.subheader("✅ Strengths")
-        for item in evaluation.get("strengths", []):
-            st.write("• " + str(item))
+        st.subheader("📝 README Quality")
+        st.progress(readme["score"] / 100)
+        st.write(f"**Status:** {readme['status']}")
+        st.write(f"**Word count:** {readme['word_count']}")
 
-    with right:
-        st.subheader("⚠️ Weaknesses")
-        for item in evaluation.get("weaknesses", []):
-            st.write("• " + str(item))
-
-    st.subheader("💡 Suggestions")
-    for item in evaluation.get("suggestions", []):
-        st.write("• " + str(item))
-
-    st.divider()
-    st.header("💻 Technology Stack")
-
-    languages = summary.get("languages", {})
-    if languages:
-        for language, count in languages.items():
-            st.write(f"**{language}:** {count} file(s)")
-    else:
-        st.info("No supported programming languages detected.")
-
-    st.divider()
-    st.header("🧹 Code Quality")
-    quality = data["quality"]
-    st.metric("Source files checked", quality.get("checked_files", 0))
-
-    if quality.get("findings"):
-        for finding in quality["findings"]:
-            st.warning(
-                f"{finding.get('severity', 'Unknown')}: "
-                f"{finding.get('issue', '')} — "
-                f"{finding.get('file', '')}"
-            )
-    else:
-        st.success("No code quality findings detected.")
-
-    st.divider()
-    st.header("🔐 Security Scan")
-    security = data["security"]
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("🔴 High", security_count(data, "High"))
-    c2.metric("🟠 Medium", security_count(data, "Medium"))
-    c3.metric("🟡 Low", security_count(data, "Low"))
-
-    for finding in security.get("findings", []):
-        st.warning(
-            f"{finding.get('severity', 'Unknown')}: "
-            f"{finding.get('issue', '')} — "
-            f"{finding.get('file', '')}"
-        )
-
-    st.divider()
-    st.header("📝 README Quality Analysis")
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Documentation score", f"{readme['score']}/100")
-    c2.metric("Status", readme["status"])
-    c3.metric("Word count", readme["word_count"])
-    st.progress(readme["score"] / 100)
-
-    with st.expander("README checklist", expanded=True):
         for name, passed in readme["checks"].items():
             st.write(("✅ " if passed else "⚠️ ") + name)
 
-    for suggestion in readme["suggestions"]:
-        st.write("• " + suggestion)
+        if readme["missing_sections"]:
+            st.markdown("**Suggested improvements**")
+            for section in readme["missing_sections"]:
+                st.write(f"• Add or improve: {section}")
+
+    with right:
+        st.subheader("🔐 Security Findings")
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("High", count_severity(data, "High"))
+        c2.metric("Medium", count_severity(data, "Medium"))
+        c3.metric("Low", count_severity(data, "Low"))
+
+        findings = security.get("findings", [])
+
+        if findings:
+            for finding in findings:
+                st.warning(
+                    f"{finding.get('severity', 'Unknown')}: "
+                    f"{finding.get('issue', 'Finding detected')} "
+                    f"({finding.get('file', 'file unknown')})"
+                )
+        else:
+            st.success("No findings were reported by the current automated scan.")
 
     st.divider()
-    st.header("📈 GitHub Activity Analyzer")
+
+    st.subheader("💻 Technology Stack")
+
+    languages = summary.get("languages", {})
+
+    if languages:
+        st.bar_chart(languages)
+    else:
+        st.info("No language statistics are available.")
+
+    st.divider()
+
+    st.subheader("🧹 Code Quality")
+
+    findings = data["quality"].get("findings", [])
+    st.write(f"**Files checked:** {data['quality'].get('checked_files', 0)}")
+
+    if findings:
+        for finding in findings:
+            st.write(
+                f"• **{finding.get('severity', 'Unknown')}** — "
+                f"{finding.get('issue', 'Issue detected')} "
+                f"({finding.get('file', 'unknown file')})"
+            )
+    else:
+        st.success("No code quality findings were reported.")
+
+    st.divider()
+
+    st.subheader("📈 Recent GitHub Activity")
 
     c1, c2 = st.columns(2)
-    c1.metric("Recent commits retrieved", activity["commit_count"])
-    c2.metric("Contributors retrieved", activity["contributor_count"])
+    c1.metric("Recent commits retrieved", len(activity["commits"]))
+    c2.metric("Contributors listed", len(activity["contributors"]))
 
     st.caption(
-        "This view displays up to 10 recent commits and up to 10 contributors. "
-        "These are API result counts, not lifetime totals."
+        "GitHub API results are limited to the latest 10 commits and up to "
+        "10 listed contributors. These are not lifetime totals."
     )
 
     if activity["error"]:
         st.warning(activity["error"])
 
-    st.subheader("📝 Recent Commits")
-    if activity["commits"]:
-        for commit in activity["commits"]:
-            details = commit.get("commit", {})
-            message = details.get("message", "No commit message").split("\n")[0]
-            author = details.get("author") or {}
-            date = author.get("date", "Date unavailable")
-            url = commit.get("html_url", "")
+    with st.expander("📝 Recent Commits", expanded=True):
+        if activity["commits"]:
+            for commit in activity["commits"]:
+                details = commit.get("commit", {})
+                message = details.get("message", "No message").split("\n")[0]
+                author = details.get("author") or {}
 
-            with st.expander(message[:120]):
-                st.write("**Author:**", author.get("name", "Unknown"))
-                st.write("**Date:**", date)
-                if url:
-                    st.markdown(f"[View commit]({url})")
-    else:
-        st.info("No recent commits were returned by GitHub.")
-
-    st.subheader("👥 Contributors")
-    if activity["contributors"]:
-        for person in activity["contributors"]:
-            login = person.get("login", "Unknown")
-            contributions = person.get("contributions", 0)
-            profile = person.get("html_url", "")
-            if profile:
                 st.markdown(
-                    f"- [{login}]({profile}) — {contributions} contributions"
+                    f"**[{message}]({commit.get('html_url', '#')})**"
                 )
-            else:
-                st.write(f"- {login} — {contributions} contributions")
-    else:
-        st.info("No contributor data was returned by GitHub.")
+                st.caption(
+                    f"{author.get('name', 'Unknown author')} · "
+                    f"{author.get('date', 'Date unavailable')}"
+                )
+        else:
+            st.info("No recent commits are available.")
+
+    with st.expander("👥 Contributors"):
+        if activity["contributors"]:
+            for person in activity["contributors"]:
+                st.markdown(
+                    f"- [{person.get('login', 'Unknown')}]"
+                    f"({person.get('html_url', '#')}) — "
+                    f"{person.get('contributions', 0)} contributions"
+                )
+        else:
+            st.info("No contributor data is available.")
 
     st.divider()
-    st.header("📖 README Preview")
+
+    st.subheader("🧠 Evaluation Summary")
+
+    st.write("**Strengths**")
+    for item in evaluation.get("strengths", []):
+        st.write(f"• {item}")
+
+    st.write("**Weaknesses**")
+    for item in evaluation.get("weaknesses", []):
+        st.write(f"• {item}")
+
+    st.write("**Suggestions**")
+    for item in evaluation.get("suggestions", []):
+        st.write(f"• {item}")
+
+    st.divider()
+
+    st.subheader("📖 README Preview")
+
     if data["readme"]:
-        st.markdown(data["readme"][:5000])
+        st.markdown(data["readme"][:6000])
     else:
-        st.warning("No README found.")
+        st.info("This repository does not have a README.")
 
     st.divider()
-    st.header("📥 Export Reports")
 
-    report = {
-        "repository": repo,
-        "health_score": data["health_score"],
-        "evaluation": evaluation,
-        "readme_analysis": readme,
-        "summary": summary,
-        "code_quality": quality,
-        "security": security,
-        "activity": {
-            "recent_commits_retrieved": activity["commit_count"],
-            "contributors_retrieved": activity["contributor_count"],
-            "commits": activity["commits"],
-            "contributors": activity["contributors"]
-        }
-    }
+    st.subheader("📥 Export Insights")
 
-    c1, c2 = st.columns(2)
+    report = build_report(data)
+    filename = info.get("name", "repository")
 
-    with c1:
+    col1, col2 = st.columns(2)
+
+    with col1:
         st.download_button(
-            "📄 Download Text Report",
-            data=create_report(data),
-            file_name=f"{repo.get('name', 'repository')}-repolens-report.txt",
-            mime="text/plain"
+            "Download JSON Report",
+            data=json.dumps(report, indent=2),
+            file_name=f"{filename}-insights.json",
+            mime="application/json"
         )
 
-    with c2:
+    with col2:
+        text_report = (
+            f"RepoLens Insights Report\n"
+            f"Repository: {info.get('full_name')}\n"
+            f"Health Score: {data['health']}/100\n"
+            f"Evaluation Score: {evaluation.get('score', 0)}/100\n"
+            f"README Score: {readme['score']}/100\n"
+            f"Stars: {info.get('stargazers_count', 0)}\n"
+            f"Forks: {info.get('forks_count', 0)}\n"
+            f"Recent commits retrieved: {len(activity['commits'])}\n"
+            f"Contributors listed: {len(activity['contributors'])}\n"
+        )
+
         st.download_button(
-            "📋 Download JSON Report",
-            data=json.dumps(report, indent=4),
-            file_name=f"{repo.get('name', 'repository')}-repolens-report.json",
-            mime="application/json"
+            "Download Text Report",
+            data=text_report,
+            file_name=f"{filename}-insights.txt",
+            mime="text/plain"
         )
 
 
 st.title("🔍 RepoLens")
-st.caption("GitHub Repository Analyzer, Evaluator & Comparison Agent")
-st.write(
-    "Analyze GitHub projects, review documentation, inspect potential "
-    "security findings, explore activity, and compare repositories."
-)
+st.caption("Repository Insights Dashboard | Analyze. Evaluate. Improve.")
 
-tab1, tab2 = st.tabs(["🔍 Analyze Repository", "⚔️ Compare Repositories"])
+tab1, tab2 = st.tabs(["📊 Repository Insights", "⚔️ Compare Repositories"])
 
 with tab1:
-    repo_url = st.text_input(
+    url = st.text_input(
         "GitHub Repository URL",
         placeholder="https://github.com/username/repository"
     )
 
-    if st.button("🚀 Analyze Repository", type="primary"):
-        owner, repo = parse_github_url(repo_url)
+    if st.button("🚀 Generate Insights", type="primary"):
+        owner, repo = parse_github_url(url)
 
         if not owner or not repo:
-            st.error("Enter a valid public GitHub repository URL.")
+            st.error("Enter a valid GitHub repository URL.")
         else:
             try:
-                with st.spinner("RepoLens is analyzing the repository..."):
-                    data = analyze_repository(owner, repo)
+                with st.spinner("Generating repository insights..."):
+                    result = analyze_repository(owner, repo)
 
-                st.success("Analysis completed!")
-                show_repository(data)
+                st.success("Repository insights generated!")
+                show_dashboard(result)
+
             except Exception as error:
                 st.error(f"Analysis failed: {error}")
 
 
 with tab2:
-    st.header("⚔️ Compare Two GitHub Repositories")
+    st.subheader("⚔️ Compare Two Repositories")
 
-    col_a, col_b = st.columns(2)
+    col1, col2 = st.columns(2)
 
-    with col_a:
+    with col1:
         url_a = st.text_input(
-            "Repository A URL",
+            "Repository A",
             placeholder="https://github.com/user/project-a"
         )
 
-    with col_b:
+    with col2:
         url_b = st.text_input(
-            "Repository B URL",
+            "Repository B",
             placeholder="https://github.com/user/project-b"
         )
 
-    if st.button("⚔️ Compare Repositories", type="primary"):
+    if st.button("Compare Projects", type="primary"):
         owner_a, repo_a = parse_github_url(url_a)
         owner_b, repo_b = parse_github_url(url_b)
 
-        if not owner_a or not repo_a:
-            st.error("Repository A URL is invalid.")
-        elif not owner_b or not repo_b:
-            st.error("Repository B URL is invalid.")
+        if not owner_a or not repo_a or not owner_b or not repo_b:
+            st.error("Enter valid URLs for both repositories.")
         else:
             try:
-                with st.spinner("Comparing repositories..."):
-                    data_a = analyze_repository(owner_a, repo_a)
-                    data_b = analyze_repository(owner_b, repo_b)
+                with st.spinner("Analyzing both repositories..."):
+                    a = analyze_repository(owner_a, repo_a)
+                    b = analyze_repository(owner_b, repo_b)
 
-                score_a = data_a["health_score"]
-                score_b = data_b["health_score"]
-
-                st.header("🏆 Comparison Result")
+                score_a = a["health"]
+                score_b = b["health"]
 
                 if score_a > score_b:
-                    st.success(f"{repo_a} leads by {score_a - score_b} health points.")
+                    st.success(f"{repo_a} has the higher health score.")
                 elif score_b > score_a:
-                    st.success(f"{repo_b} leads by {score_b - score_a} health points.")
+                    st.success(f"{repo_b} has the higher health score.")
                 else:
                     st.info("Both repositories have equal health scores.")
 
-                comparison = {
+                st.table({
                     "Metric": [
-                        "Health score",
-                        "Evaluation score",
-                        "README quality",
-                        "Files",
+                        "Health Score",
+                        "Evaluation Score",
+                        "README Quality",
                         "Stars",
                         "Forks",
-                        "Languages",
-                        "Recent commits retrieved",
-                        "Contributors retrieved",
-                        "High security findings",
-                        "Medium security findings",
-                        "Low security findings"
+                        "Files",
+                        "Recent Commits Retrieved",
+                        "Contributors Listed",
+                        "High Security Findings",
+                        "Medium Security Findings",
+                        "Low Security Findings"
                     ],
                     repo_a: [
                         score_a,
-                        data_a["evaluation"].get("score", 0),
-                        data_a["readme_analysis"]["score"],
-                        data_a["summary"].get("total_files", 0),
-                        data_a["repo_info"].get("stargazers_count", 0),
-                        data_a["repo_info"].get("forks_count", 0),
-                        get_languages(data_a),
-                        data_a["activity"]["commit_count"],
-                        data_a["activity"]["contributor_count"],
-                        security_count(data_a, "High"),
-                        security_count(data_a, "Medium"),
-                        security_count(data_a, "Low")
+                        a["evaluation"].get("score", 0),
+                        a["readme_report"]["score"],
+                        a["info"].get("stargazers_count", 0),
+                        a["info"].get("forks_count", 0),
+                        a["summary"].get("total_files", 0),
+                        len(a["activity"]["commits"]),
+                        len(a["activity"]["contributors"]),
+                        count_severity(a, "High"),
+                        count_severity(a, "Medium"),
+                        count_severity(a, "Low")
                     ],
                     repo_b: [
                         score_b,
-                        data_b["evaluation"].get("score", 0),
-                        data_b["readme_analysis"]["score"],
-                        data_b["summary"].get("total_files", 0),
-                        data_b["repo_info"].get("stargazers_count", 0),
-                        data_b["repo_info"].get("forks_count", 0),
-                        get_languages(data_b),
-                        data_b["activity"]["commit_count"],
-                        data_b["activity"]["contributor_count"],
-                        security_count(data_b, "High"),
-                        security_count(data_b, "Medium"),
-                        security_count(data_b, "Low")
+                        b["evaluation"].get("score", 0),
+                        b["readme_report"]["score"],
+                        b["info"].get("stargazers_count", 0),
+                        b["info"].get("forks_count", 0),
+                        b["summary"].get("total_files", 0),
+                        len(b["activity"]["commits"]),
+                        len(b["activity"]["contributors"]),
+                        count_severity(b, "High"),
+                        count_severity(b, "Medium"),
+                        count_severity(b, "Low")
                     ]
-                }
+                })
 
-                st.subheader("📊 Detailed Comparison")
-                st.table(comparison)
-
-                comparison_report = {
-                    "repository_a": {
-                        "name": data_a["repo_info"].get("full_name"),
-                        "health_score": score_a,
-                        "evaluation": data_a["evaluation"],
-                        "readme_analysis": data_a["readme_analysis"]
-                    },
-                    "repository_b": {
-                        "name": data_b["repo_info"].get("full_name"),
-                        "health_score": score_b,
-                        "evaluation": data_b["evaluation"],
-                        "readme_analysis": data_b["readme_analysis"]
-                    },
-                    "winner": (
+                comparison = {
+                    "repository_a": build_report(a),
+                    "repository_b": build_report(b),
+                    "higher_health_score": (
                         repo_a if score_a > score_b else
                         repo_b if score_b > score_a else "Tie"
                     )
@@ -608,7 +542,7 @@ with tab2:
 
                 st.download_button(
                     "📥 Download Comparison JSON",
-                    data=json.dumps(comparison_report, indent=4),
+                    data=json.dumps(comparison, indent=2),
                     file_name="repolens-comparison.json",
                     mime="application/json"
                 )
@@ -619,7 +553,6 @@ with tab2:
 
 st.divider()
 st.caption(
-    "RepoLens uses automated rule-based analysis and GitHub's public API. "
-    "Activity is a limited snapshot, not a complete historical count. "
-    "Security results do not replace a professional security audit."
+    "RepoLens provides automated rule-based insights. Scores and security "
+    "findings are estimates, not guarantees or a professional audit."
 )
